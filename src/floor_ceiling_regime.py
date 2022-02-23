@@ -10,7 +10,7 @@ from matplotlib import pyplot as plt
 
 import yfinance as yf
 import pd_accessors as pda
-from src.utils import trading_stats as ts
+from src.utils import trading_stats as ts, regime
 import src.utils.regime
 
 
@@ -32,7 +32,7 @@ def all_retest_swing(df, rt: str, dist_pct, retrace_pct, n_num, is_relative=Fals
         # working_df = working_df[['open', 'close', 'high', 'low']].copy()
 
         try:
-            working_df = df[["open", "close", "high", "low"]].iloc[:index].copy()
+            working_df = df[["open", "close", "high", "low"]].iloc[:ix].copy()
             working_df = src.utils.regime.init_swings(
                 working_df, dist_pct, retrace_pct, n_num, is_relative=is_relative
             )
@@ -217,7 +217,7 @@ def get_follow_peaks(
     :return:
     """
     pivot_table = pd.DataFrame(columns=[current_peak.name, prior_peaks.name])
-    follow_peaks = pd.Series(index=current_peak.index)
+    follow_peaks = pd.Series(index=current_peak.index, dtype=pd.Float64Dtype())
 
     for r in current_peak.dropna().iteritems():
         # slice df starting with r swing, then exclude r swing, drop nans, then only keep the first row
@@ -261,23 +261,6 @@ def assign_pyramid_weight(df, regime_col, entry_count_col, regime_val=None):
     weights = []
     for regime_slice in pda.regime_slices(df, regime_col, regime_val):
         weights.append(pyramid(regime_slice[entry_count_col]))
-
-
-def unpivot(
-    pivot_table: pd.DataFrame,
-    start_date_col: str,
-    end_date_col: str,
-    new_date_col="date",
-):
-    """unpivot the given table given start and end dates"""
-    unpivot_table = pivot_table.copy()
-    unpivot_table[new_date_col] = unpivot_table.apply(
-        lambda x: pd.date_range(x[start_date_col], x[end_date_col]), axis=1
-    )
-    unpivot_table = unpivot_table.explode(new_date_col, ignore_index=True).drop(
-        columns=[start_date_col, end_date_col]
-    )
-    return unpivot_table
 
 
 def regime_ranges(df, rg_col: str):
@@ -341,9 +324,6 @@ def get_all_entry_candidates(
         raw_signals_list.append(rg_entries)
 
     signal_candidates = pd.concat(raw_signals_list).reset_index(drop=True)
-    signal_candidates = signal_candidates.rename(
-        columns={"start": "trail_stop", "end": "entry"}
-    )
     signal_candidates = signal_candidates.drop(columns=["lvl", "type"])
     return signal_candidates
 
@@ -500,9 +480,7 @@ def draw_stop_line(
     target_exit_signal = stop_calc.target_exit_signal(price, target_price)
     partial_exit_date = stop_line.loc[target_exit_signal].first_valid_index()
 
-    if partial_exit_date is None:
-        partial_exit_date = price.index[-1]
-    else:
+    if partial_exit_date is not None:
         stop_line.loc[partial_exit_date:] = fixed_stop_price
 
     stop_loss_exit_signal = stop_calc.exit_signal(price, stop_line)
@@ -593,145 +571,17 @@ def process_signal_data(
                     entry_signal_data, ignore_index=True
                 )
 
-            if exit_signal_date <= partial_exit_date:
-                # start = rg_price_data.iloc[rg_price_data.index.get_loc(exit_signal_date) + 1].index[0]
-                start = exit_signal_date
-            else:
-                # if exit greater than partial exit, then potentially another signal can be added
-                start = partial_exit_date
+            start = exit_signal_date
+            if partial_exit_date is not None:
+                if exit_signal_date <= partial_exit_date:
+                    # start = rg_price_data.iloc[rg_price_data.index.get_loc(exit_signal_date) + 1].index[0]
+                    start = exit_signal_date
+                else:
+                    # if exit greater than partial exit, then potentially another signal can be added
+                    start = partial_exit_date
 
     stop_prices = pd.concat(stop_lines)
     return valid_entries, stop_prices
-
-
-def calc_stats(
-    strategy_data: pd.DataFrame,
-    strategy_returns_col: str,
-    passive_returns_col: str,
-    min_periods: int,
-    window: int,
-    percentile: float,
-    limit,
-) -> pd.DataFrame:
-    """
-    get full stats of strategy, rolling and expanding
-    :param strategy_data:
-    :param strategy_returns_col:
-    :param passive_returns_col:
-    :param min_periods:
-    :param window:
-    :param percentile:
-    :param limit:
-    :return:
-    """
-
-    # TODO include strategy + d1 returns
-    strategy_returns_1d = strategy_data[strategy_returns_col]
-    passive_returns_1d = strategy_data[passive_returns_col]
-
-    # Performance
-    cumul_passive = ts.cumulative_returns_pct(passive_returns_1d, min_periods)
-    cumul_returns = ts.cumulative_returns_pct(strategy_returns_1d, min_periods)
-    cumul_excess = cumul_returns - cumul_passive - 1
-    cumul_returns_pct = ts.cumulative_returns_pct(strategy_returns_1d, min_periods)
-
-    # Robustness metrics
-    grit_expanding = ts.expanding_grit(cumul_returns)
-    grit_roll = ts.rolling_grit(cumul_returns, window)
-
-    tr_expanding = ts.expanding_tail_ratio(cumul_returns, percentile, limit)
-    tr_roll = ts.rolling_tail_ratio(cumul_returns, window, percentile, limit)
-
-    profits_expanding = ts.expanding_profits(strategy_returns_1d)
-    losses_expanding = ts.expanding_losses(strategy_returns_1d)
-    pr_expanding = ts.profit_ratio(profits=profits_expanding, losses=losses_expanding)
-
-    profits_roll = ts.rolling_profits(strategy_returns_1d, window)
-    losses_roll = ts.rolling_losses(strategy_returns_1d, window)
-    pr_roll = ts.profit_ratio(profits=profits_roll, losses=losses_roll)
-
-    # Cumulative t-stat
-    win_count = (
-        strategy_returns_1d[strategy_returns_1d > 0]
-        .expanding()
-        .count()
-        .fillna(method="ffill")
-    )
-    total_count = (
-        strategy_returns_1d[strategy_returns_1d != 0]
-        .expanding()
-        .count()
-        .fillna(method="ffill")
-    )
-
-    csr_expanding = ts.common_sense_ratio(pr_expanding, tr_expanding)
-    csr_roll = ts.common_sense_ratio(pr_roll, tr_roll)
-
-    # Trade Count
-    signals = strategy_data.signal.copy()
-    trade_count = pd.Series(data=np.NAN, index=signals.index)
-    # TODO check if first trade counts if first row is active signal
-    trade_count.loc[signals.diff() != 0] = (
-        signals.loc[signals.diff() != 0].abs().cumsum()
-    )
-    trade_count = trade_count.fillna(method="ffill")
-    signal_roll = trade_count.diff(window)
-
-    win_rate = (win_count / total_count).fillna(method="ffill")
-    avg_win = profits_expanding / total_count
-    avg_loss = losses_expanding / total_count
-    edge_expanding = ts.expectancy(win_rate, avg_win, avg_loss).fillna(method="ffill")
-    sqn_expanding = ts.t_stat(trade_count, edge_expanding)
-
-    win_roll = strategy_returns_1d.copy()
-    win_roll[win_roll < 0] = np.nan
-    win_rate_roll = win_roll.rolling(window, min_periods=0).count() / window
-    avg_win_roll = profits_roll / window
-    avg_loss_roll = losses_roll / window
-
-    edge_roll = ts.expectancy(
-        win_rate=win_rate_roll, avg_win=avg_win_roll, avg_loss=avg_loss_roll
-    )
-    sqn_roll = ts.t_stat_expanding(signal_count=signal_roll, expectancy=edge_roll)
-
-    score_expanding = ts.robustness_score(grit_expanding, csr_expanding, sqn_expanding)
-    score_roll = ts.robustness_score(grit_roll, csr_roll, sqn_roll)
-
-    return pd.DataFrame.from_dict(
-        {
-            # Note: commented out items should be included afterwords
-            # 'ticker': symbol,
-            # 'tstmt': ticker_stmt,
-            # 'st': st,
-            # 'mt': mt,
-            "perf": cumul_returns_pct,
-            "excess": cumul_excess,
-            # 'score': round(score_expanding[-1], 1),  # TODO remove (risk_adj_returns used for score)
-            # 'score_roll': round(score_roll[-1], 1),  # TODO remove (risk_adj_returns used for score)
-            "trades": trade_count,
-            "win": win_rate,
-            "win_roll": win_rate_roll,
-            "avg_win": avg_win,
-            "avg_win_roll": avg_win_roll,
-            "avg_loss": avg_loss,
-            "avg_loss_roll": avg_loss_roll,
-            # 'geo_GE': round(geo_ge, 4),
-            "expectancy": edge_expanding,
-            "edge_roll": edge_roll,
-            "grit": grit_expanding,
-            "grit_roll": grit_roll,
-            "csr": csr_expanding,
-            "csr_roll": csr_roll,
-            "pr": pr_expanding,
-            "pr_roll": pr_roll,
-            "tail": tr_expanding,
-            "tail_roll": tr_roll,
-            "sqn": sqn_expanding,
-            "sqn_roll": sqn_roll,
-            "risk_adjusted_returns": score_expanding,
-            "risk_adj_returns_roll": score_roll,
-        }
-    )
 
 
 def fc_scale_strategy(
@@ -755,7 +605,7 @@ def fc_scale_strategy(
         sw_lvl=sw_lvl,
     )
 
-    standard_dev = data[_close].rolling(swing_window).std(ddof=0)
+    standard_dev = price_data.close.rolling(swing_window).std(ddof=0)
 
     regime_table, enhanced_price_data = init_regime_table(
         enhanced_price_data=enhanced_price_data,
@@ -826,43 +676,153 @@ def init_signal_stop_loss_tables(
     return process_signal_data(price_data, regime_table, raw_signals)
 
 
-if __name__ == "__main__":
-    ticker = "COP"
-    try:
-        data = yf.ticker.Ticker(ticker).history(
-            start=(datetime.now() - timedelta(days=58)),
-            end=datetime.now(),
-            interval="15m",
-        )
-    # if no internet, use cached data
-    except:
-        data = pd.read_excel("data.xlsx")
-    else:
-        data = data.tz_localize(None)
-        data.to_excel("data.xlsx")
+def calc_stats(
+    price_data: pd.DataFrame,
+    signals: pd.DataFrame,
+    min_periods: int,
+    window: int,
+    percentile: float,
+    limit,
+    freq: str,
+) -> pd.DataFrame:
+    """
+    get full stats of strategy, rolling and expanding
+    :param freq:
+    :param signals:
+    :param price_data:
+    :param strategy_data:
+    :param signals_table
+    :param strategy_returns_col:
+    :param passive_returns_col:
+    :param min_periods:
+    :param window:
+    :param percentile:
+    :param limit:
+    :return:
+    """
 
-    data = data.rename(
-        columns={"Open": "open", "High": "high", "Low": "low", "Close": "close"}
+    # TODO include regime returns
+
+    signal_table = pda.SignalTable(signals.copy())
+    signal_table.data['trade_count'] = signal_table.counts
+    signals_un_pivot = signal_table.unpivot(freq=freq, valid_dates=price_data.index)
+    signals_un_pivot = signals_un_pivot.loc[~signals_un_pivot.index.duplicated(keep='first')]
+
+    passive_returns_1d = ts.simple_log_returns(price_data.close)
+    signals_un_pivot['returns_1d'] = passive_returns_1d
+    # don't use entry date to calculate returns
+    signals_un_pivot.loc[signal_table.entry, 'returns_1d'] = 0
+    strategy_returns_1d = signals_un_pivot['returns_1d'] * signals_un_pivot.dir
+
+    # Performance
+    cumul_passive = ts.cumulative_returns_pct(passive_returns_1d, min_periods)
+    cumul_returns = ts.cumulative_returns_pct(strategy_returns_1d, min_periods)
+    cumul_excess = cumul_returns - cumul_passive - 1
+    cumul_returns_pct = ts.cumulative_returns_pct(strategy_returns_1d, min_periods)
+
+    # Robustness metrics
+    grit_expanding = ts.expanding_grit(cumul_returns)
+    grit_roll = ts.rolling_grit(cumul_returns, window)
+
+    tr_expanding = ts.expanding_tail_ratio(cumul_returns, percentile, limit)
+    tr_roll = ts.rolling_tail_ratio(cumul_returns, window, percentile, limit)
+
+    profits_expanding = ts.expanding_profits(strategy_returns_1d)
+    losses_expanding = ts.expanding_losses(strategy_returns_1d)
+    pr_expanding = ts.profit_ratio(profits=profits_expanding, losses=losses_expanding)
+
+    profits_roll = ts.rolling_profits(strategy_returns_1d, window)
+    losses_roll = ts.rolling_losses(strategy_returns_1d, window)
+    pr_roll = ts.profit_ratio(profits=profits_roll, losses=losses_roll)
+
+    # Cumulative t-stat
+    win_count = (
+        strategy_returns_1d[strategy_returns_1d > 0]
+        .expanding()
+        .count()
+        .fillna(method="ffill")
     )
-    data = data[["open", "high", "low", "close"]]
+    total_count = (
+        strategy_returns_1d[strategy_returns_1d != 0]
+        .expanding()
+        .count()
+        .fillna(method="ffill")
+    )
+
+    csr_expanding = ts.common_sense_ratio(pr_expanding, tr_expanding)
+    csr_roll = ts.common_sense_ratio(pr_roll, tr_roll)
+
+    # Trade Count
+    trade_count = signals_un_pivot['trade_count']
+    signal_roll = trade_count.diff(window)
+
+    win_rate = (win_count / total_count).fillna(method="ffill")
+    avg_win = profits_expanding / total_count
+    avg_loss = losses_expanding / total_count
+    edge_expanding = ts.expectancy(win_rate, avg_win, avg_loss).fillna(method="ffill")
+    sqn_expanding = ts.t_stat(trade_count, edge_expanding)
+
+    win_roll = strategy_returns_1d.copy()
+    win_roll[win_roll < 0] = np.nan
+    win_rate_roll = win_roll.rolling(window, min_periods=0).count() / window
+    avg_win_roll = profits_roll / window
+    avg_loss_roll = losses_roll / window
+
+    edge_roll = ts.expectancy(
+        win_rate=win_rate_roll, avg_win=avg_win_roll, avg_loss=avg_loss_roll
+    )
+    sqn_roll = ts.t_stat_expanding(signal_count=signal_roll, expectancy=edge_roll)
+
+    score_expanding = ts.robustness_score(grit_expanding, csr_expanding, sqn_expanding)
+    score_roll = ts.robustness_score(grit_roll, csr_roll, sqn_roll)
+    stat_sheet_dict = {
+        # Note: commented out items should be included afterwords
+        # 'ticker': symbol,
+        # 'tstmt': ticker_stmt,
+        # 'st': st,
+        # 'mt': mt,
+        "perf": cumul_returns_pct,
+        "excess": cumul_excess,
+        # 'score': round(score_expanding[-1], 1),  # TODO remove (risk_adj_returns used for score)
+        # 'score_roll': round(score_roll[-1], 1),  # TODO remove (risk_adj_returns used for score)
+        "trades": trade_count,
+        "win": win_rate,
+        "win_roll": win_rate_roll,
+        "avg_win": avg_win,
+        "avg_win_roll": avg_win_roll,
+        "avg_loss": avg_loss,
+        "avg_loss_roll": avg_loss_roll,
+        # 'geo_GE': round(geo_ge, 4),
+        "expectancy": edge_expanding,
+        "edge_roll": edge_roll,
+        "grit": grit_expanding,
+        "grit_roll": grit_roll,
+        "csr": csr_expanding,
+        "csr_roll": csr_roll,
+        "pr": pr_expanding,
+        "pr_roll": pr_roll,
+        "tail": tr_expanding,
+        "tail_roll": tr_roll,
+        "sqn": sqn_expanding,
+        "sqn_roll": sqn_roll,
+        "risk_adjusted_returns": score_expanding,
+        "risk_adj_returns_roll": score_roll,
+    }
+    for key, value in stat_sheet_dict.items():
+        pd.DataFrame.from_dict({key: value})
+
+    return pd.DataFrame.from_dict(stat_sheet_dict)
+
+
+def rolling_plot(price_data: pd.DataFrame, ndf, stop_loss_t, ticker, ):
+    """
+    recalculates the strategy on a rolling window of the given data to visualize how
+    the strategy behaves
+    """
     _open = "open"
     _high = "high"
     _low = "low"
     _close = "close"
-
-    ndf, peak_t, rg_t, valid_t, stop_loss_t = fc_scale_strategy(
-        price_data=data,
-        distance_pct=0.05,
-        retrace_pct=0.05,
-        swing_window=63,
-        sw_lvl=3,
-        regime_threshold=0.5,
-        entry_lvls=[2],
-        highest_peak_lvl=3,
-    )
-
-
-def rolling_plot(data: pd.DataFrame):
     use_index = False
     initial_size = 600
     plot_window = 250
@@ -873,7 +833,7 @@ def rolling_plot(data: pd.DataFrame):
     lo2_lag = None
     hi2_discovery_dts = []
     lo2_discovery_dts = []
-    d = data[[_open, _high, _low, _close]].copy().iloc[:index]
+    d = price_data[[_open, _high, _low, _close]].copy().iloc[:index]
 
     ndf["stop_loss"] = stop_loss_t
     a = ndf[
@@ -921,8 +881,8 @@ def rolling_plot(data: pd.DataFrame):
 
     """
 
-    for idx, row in data.iterrows():
-        if (num := data.index.get_loc(idx)) <= index:
+    for idx, row in price_data.iterrows():
+        if (num := price_data.index.get_loc(idx)) <= index:
             print(f"iter index {num}")
             continue
         d.at[idx] = row
@@ -1024,3 +984,87 @@ def rolling_plot(data: pd.DataFrame):
     hi2_lag.plot(style="r.", use_index=use_index, ax=axis)
     lo2_lag.plot(style="g.", use_index=use_index, ax=axis)
     plt.show()
+
+
+def yf_get_stock_data(symbol, days, interval: str):
+    try:
+        data = yf.ticker.Ticker(symbol).history(
+            start=(datetime.now() - timedelta(days=days)),
+            end=datetime.now(),
+            interval=interval,
+        )
+    # if no internet, use cached data
+    except:
+        data = pd.read_excel("data.xlsx")
+    else:
+        data = data.tz_localize(None)
+        data.to_excel("data.xlsx")
+
+    data = data.rename(
+        columns={"Open": "open", "High": "high", "Low": "low", "Close": "close"}
+    )
+    return data[["open", "high", "low", "close"]]
+
+
+def get_wikipedia_stocks(url):
+    wiki_df = pd.read_html(url)[0]
+    tickers_list = list(wiki_df['Symbol'])
+    return tickers_list[:]
+
+
+def scan_all(symbols, days, interval):
+    """scan all data"""
+    for i, symbol in enumerate(symbols):
+        data = yf_get_stock_data(symbol, days=days, interval=interval)
+
+        if data.empty:
+            print(f'{symbol}, no data')
+            continue
+
+        try:
+            ndf, peak_t, rg_t, valid_t, stop_loss_t = fc_scale_strategy(
+                price_data=data,
+                distance_pct=0.05,
+                retrace_pct=0.05,
+                swing_window=63,
+                sw_lvl=3,
+                regime_threshold=0.5,
+                entry_lvls=[2],
+                highest_peak_lvl=3,
+            )
+        except regime.NotEnoughDataError:
+            continue
+
+        stat_sheet = calc_stats(data, valid_t, min_periods=50, window=200, percentile=0.05, limit=5, freq='15T')
+        print(f'({i}/{len(symbols)}) {symbol}')
+        yield {
+            'symbol': symbol,
+            'ndf': ndf,
+            'peak_t': peak_t,
+            'rg_t': rg_t,
+            'valid_t': valid_t,
+            'stop_loss_t': stop_loss_t,
+            'stat_sheet': stat_sheet
+        }
+
+
+def main():
+    sp500_wiki = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+
+    tickers = get_wikipedia_stocks(sp500_wiki)
+
+    stat_overview = pd.DataFrame()
+
+    print('scanning...')
+    for scan_data in scan_all(tickers, days=58, interval='15m'):
+        stat_sheet = scan_data['stat_sheet'].reset_index().copy()
+        stat_sheet_overview = stat_sheet.iloc[-1].copy()
+        stat_sheet_overview['symbol'] = scan_data['symbol']
+        stat_overview = stat_overview.append(stat_sheet_overview)
+
+    return stat_overview
+
+
+if __name__ == "__main__":
+    main()
+    print('d')

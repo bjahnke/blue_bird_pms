@@ -182,15 +182,23 @@ def historical_swings(df, _o, _h, _l, _c, dist=None, hurdle=None, round_place=2)
     return df
 
 
+class NotEnoughDataError(Exception):
+    """unable to collect enough swing data to initialize strategy"""
+
+
 def cleanup_latest_swing(df, shi, slo, rt_hi, rt_lo):
     """
     removes false positives
     """
     # latest swing
-    shi_dt = df.loc[pd.notnull(df[shi]), shi].index[-1]
-    s_hi = df.loc[pd.notnull(df[shi]), shi][-1]
-    slo_dt = df.loc[pd.notnull(df[slo]), slo].index[-1]
-    s_lo = df.loc[pd.notnull(df[slo]), slo][-1]
+    try:
+        shi_dt = df.loc[pd.notnull(df[shi]), shi].index[-1]
+        s_hi = df.loc[pd.notnull(df[shi]), shi][-1]
+        slo_dt = df.loc[pd.notnull(df[slo]), slo].index[-1]
+        s_lo = df.loc[pd.notnull(df[slo]), slo][-1]
+    except IndexError:
+        raise NotEnoughDataError
+
     len_shi_dt = len(df[:shi_dt])
     len_slo_dt = len(df[:slo_dt])
 

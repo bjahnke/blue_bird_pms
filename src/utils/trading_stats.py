@@ -2,6 +2,11 @@ import numpy as np
 import pandas as pd
 
 
+def simple_log_returns(prices: pd.Series) -> pd.Series:
+    """calculates log returns of a price series"""
+    return np.log(prices / prices.shift(1))
+
+
 def rolling_grit(cumul_returns, window):
     rolling_peak = cumul_returns.rolling(window).max()
     draw_down_squared = (cumul_returns - rolling_peak) ** 2
