@@ -986,7 +986,7 @@ def rolling_plot(price_data: pd.DataFrame, ndf, stop_loss_t, ticker, ):
     plt.show()
 
 
-def yf_get_stock_data(symbol, days, interval: str):
+def yf_get_stock_data(symbol, days, interval: str) -> pd.DataFrame:
     try:
         data = yf.ticker.Ticker(symbol).history(
             start=(datetime.now() - timedelta(days=days)),
@@ -1006,16 +1006,22 @@ def yf_get_stock_data(symbol, days, interval: str):
     return data[["open", "high", "low", "close"]]
 
 
+def get_cached_data(symbol, days, interval) -> pd.DataFrame:
+    file_name = f'{symbol}_{interval}_{days}.csv'
+    data = pd.read_csv(fr'..\strategy_output\price_data\{file_name}')
+    return data
+
+
 def get_wikipedia_stocks(url):
     wiki_df = pd.read_html(url)[0]
     tickers_list = list(wiki_df['Symbol'])
     return tickers_list[:]
 
 
-def scan_all(symbols, days, interval):
+def scan_all(symbols, get_data_method: t.Callable[[str], pd.DataFrame]):
     """scan all data"""
     for i, symbol in enumerate(symbols):
-        data = yf_get_stock_data(symbol, days=days, interval=interval)
+        data = get_data_method(symbol)
 
         if data.empty:
             print(f'{symbol}, no data')
@@ -1055,8 +1061,11 @@ def main():
 
     stat_overview = pd.DataFrame()
 
+    def get_data_method(symb):
+        return get_cached_data(symb, days=58, interval='15m')
+
     print('scanning...')
-    for scan_data in scan_all(tickers, days=58, interval='15m'):
+    for scan_data in scan_all(tickers, get_data_method):
         stat_sheet = scan_data['stat_sheet'].reset_index().copy()
         stat_sheet_overview = stat_sheet.iloc[-1].copy()
         stat_sheet_overview['symbol'] = scan_data['symbol']
@@ -1065,6 +1074,19 @@ def main():
     return stat_overview
 
 
+def download_data(tickers, days, interval):
+
+    stat_overview = pd.DataFrame()
+
+    for i, ticker in enumerate(tickers):
+        data = yf_get_stock_data(ticker, days, interval)
+        file_name = f'{ticker}_{interval}_{days}d.csv'
+        data.to_csv(fr'..\strategy_output\price_data\{file_name}')
+        print(f'({i}/{len(tickers)}) {file_name}')
+
+
 if __name__ == "__main__":
-    main()
+    t = get_wikipedia_stocks('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')
+    download_data(t, 58, '15m')
+    # main()
     print('d')
