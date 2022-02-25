@@ -5,6 +5,7 @@ swing and regime definition
 
 import numpy as np
 import pandas as pd
+import typing
 from scipy.signal import find_peaks
 
 
@@ -343,7 +344,19 @@ def retracement_swing(
 
 
 def relative(
-    df, _o, _h, _l, _c, bm_df, bm_col, ccy_df, ccy_col, dgt, start, end, rebase=True
+    df: pd.DataFrame,
+    _o: str,
+    _h: str,
+    _l: str,
+    _c: str,
+    bm_df: pd.DataFrame,
+    bm_col: str,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    ccy_df: typing.Optional[pd.DataFrame] = None,
+    ccy_col: typing.Optional[str] = None,
+    dgt: typing.Optional[int] = None,
+    rebase: typing.Optional[bool] = True
 ):
     """
     df: df
@@ -358,14 +371,21 @@ def relative(
 
     # inner join of benchmark & currency: only common values are preserved
     df = df.join(bm_df[[bm_col]], how="inner")
-    df = df.join(ccy_df[[ccy_col]], how="inner")
+
+    if ccy_df is not None:
+        df = df.join(ccy_df[[ccy_col]], how="inner")
 
     # rename benchmark name as bm and currency as ccy
     df.rename(columns={bm_col: "bm", ccy_col: "ccy"}, inplace=True)
 
     # Adjustment factor: calculate the scalar product of benchmark and currency
-    df["bmfx"] = round(df["bm"].mul(df["ccy"]), dgt).fillna(method="ffill")
-    if rebase == True:
+    product = df["bm"].mul(df["ccy"])
+    if dgt is not None:
+        product = round(product, dgt)
+
+    df["bmfx"] = product.fillna(method="ffill")
+
+    if rebase is True:
         df["bmfx"] = df["bmfx"].div(df["bmfx"][0])
 
     # Divide absolute price by fxcy adjustment factor and rebase to first value

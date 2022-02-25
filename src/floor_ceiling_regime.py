@@ -281,6 +281,8 @@ def regime_ranges(df, rg_col: str):
     boundaries[start_col][end_col] = boundaries[end_col][end_col]
     return boundaries[start_col][[start_col, end_col, rg_col]]
 
+class NoEntriesError(Exception):
+    """no entries detected"""
 
 def get_all_entry_candidates(
     price: pd.DataFrame,
@@ -322,8 +324,11 @@ def get_all_entry_candidates(
 
         rg_entries = validate_entries(price, rg_entries, rg_info.rg)
         raw_signals_list.append(rg_entries)
+    try:
+        signal_candidates = pd.concat(raw_signals_list).reset_index(drop=True)
+    except ValueError:
+        raise NoEntriesError
 
-    signal_candidates = pd.concat(raw_signals_list).reset_index(drop=True)
     signal_candidates = signal_candidates.drop(columns=["lvl", "type"])
     return signal_candidates
 
@@ -585,7 +590,8 @@ def process_signal_data(
 
 
 def fc_scale_strategy(
-    price_data,
+    price_data: pd.DataFrame,
+    side_only: int,
     distance_pct=0.05,
     retrace_pct=0.05,
     swing_window=63,
@@ -612,6 +618,7 @@ def fc_scale_strategy(
         sw_lvl=sw_lvl,
         standard_dev=standard_dev,
         regime_threshold=regime_threshold,
+        side_only=side_only
     )
 
     valid_entries, stop_loss_series = init_signal_stop_loss_tables(
@@ -645,7 +652,7 @@ def init_peak_table(
 
 
 def init_regime_table(
-    enhanced_price_data: pd.DataFrame, sw_lvl, standard_dev, regime_threshold
+    enhanced_price_data: pd.DataFrame, sw_lvl, standard_dev, regime_threshold, side_only
 ):
     """initialization of regime table bundled together"""
     shi = f"hi{sw_lvl}"
@@ -662,6 +669,8 @@ def init_regime_table(
         stdev=standard_dev,
         threshold=regime_threshold,
     )
+
+    data_with_regimes = data_with_regimes.loc[data_with_regimes.rg == side_only]
 
     return regime_ranges(data_with_regimes, "rg"), data_with_regimes
 
@@ -987,18 +996,12 @@ def rolling_plot(price_data: pd.DataFrame, ndf, stop_loss_t, ticker, ):
 
 
 def yf_get_stock_data(symbol, days, interval: str) -> pd.DataFrame:
-    try:
-        data = yf.ticker.Ticker(symbol).history(
-            start=(datetime.now() - timedelta(days=days)),
-            end=datetime.now(),
-            interval=interval,
-        )
-    # if no internet, use cached data
-    except:
-        data = pd.read_excel("data.xlsx")
-    else:
-        data = data.tz_localize(None)
-        data.to_excel("data.xlsx")
+    """get price data from yahoo finance"""
+    data = yf.ticker.Ticker(symbol).history(
+        start=(datetime.now() - timedelta(days=days)),
+        end=datetime.now(),
+        interval=interval,
+    )
 
     data = data.rename(
         columns={"Open": "open", "High": "high", "Low": "low", "Close": "close"}
@@ -1007,18 +1010,25 @@ def yf_get_stock_data(symbol, days, interval: str) -> pd.DataFrame:
 
 
 def get_cached_data(symbol, days, interval) -> pd.DataFrame:
-    file_name = f'{symbol}_{interval}_{days}.csv'
+    """get price data from local storage"""
+    file_name = f'{symbol}_{interval}_{days}d.csv'
     data = pd.read_csv(fr'..\strategy_output\price_data\{file_name}')
-    return data
+    data = data.rename(
+        columns={"Open": "open", "High": "high", "Low": "low", "Close": "close"}
+    )
+    data.Datetime = pd.to_datetime(data.Datetime)
+    data = data.set_index(data.Datetime)
+    return data[["open", "high", "low", "close"]]
 
 
 def get_wikipedia_stocks(url):
+    """get stock data (names, sectors, etc) from wikipedia"""
     wiki_df = pd.read_html(url)[0]
     tickers_list = list(wiki_df['Symbol'])
-    return tickers_list[:]
+    return tickers_list[:], wiki_df
 
 
-def scan_all(symbols, get_data_method: t.Callable[[str], pd.DataFrame]):
+def scan_all(symbols, get_data_method: t.Callable[[str], pd.DataFrame], regime_data):
     """scan all data"""
     for i, symbol in enumerate(symbols):
         data = get_data_method(symbol)
@@ -1028,8 +1038,18 @@ def scan_all(symbols, get_data_method: t.Callable[[str], pd.DataFrame]):
             continue
 
         try:
+            ticker_regime_score = regime_data.loc[regime_data['Symbol'] == symbol, 'score'].iloc[0]
+            if ticker_regime_score > 0:
+                side_only = 1
+            elif ticker_regime_score < 0:
+                side_only = -1
+            else:
+                # skip if regime score is 0: trend is sideways?
+                continue
+
             ndf, peak_t, rg_t, valid_t, stop_loss_t = fc_scale_strategy(
                 price_data=data,
+                side_only=side_only,
                 distance_pct=0.05,
                 retrace_pct=0.05,
                 swing_window=63,
@@ -1038,7 +1058,7 @@ def scan_all(symbols, get_data_method: t.Callable[[str], pd.DataFrame]):
                 entry_lvls=[2],
                 highest_peak_lvl=3,
             )
-        except regime.NotEnoughDataError:
+        except (regime.NotEnoughDataError, NoEntriesError):
             continue
 
         stat_sheet = calc_stats(data, valid_t, min_periods=50, window=200, percentile=0.05, limit=5, freq='15T')
@@ -1054,29 +1074,34 @@ def scan_all(symbols, get_data_method: t.Callable[[str], pd.DataFrame]):
         }
 
 
-def main():
-    sp500_wiki = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+def main(regime_data):
+    days = 58
+    interval = '15m'
 
-    tickers = get_wikipedia_stocks(sp500_wiki)
+    tickers = regime_data['Symbol'].to_list()
 
     stat_overview = pd.DataFrame()
 
     def get_data_method(symb):
-        return get_cached_data(symb, days=58, interval='15m')
+        return get_cached_data(symb, days=days, interval=interval)
 
     print('scanning...')
-    for scan_data in scan_all(tickers, get_data_method):
-        stat_sheet = scan_data['stat_sheet'].reset_index().copy()
-        stat_sheet_overview = stat_sheet.iloc[-1].copy()
-        stat_sheet_overview['symbol'] = scan_data['symbol']
-        stat_overview = stat_overview.append(stat_sheet_overview)
+    try:
+        for scan_data in scan_all(tickers, get_data_method, regime_data):
+            stat_sheet = scan_data['stat_sheet'].reset_index().copy()
+            stat_sheet_overview = stat_sheet.iloc[-1].copy()
+            stat_sheet_overview['symbol'] = scan_data['symbol']
+            stat_overview = stat_overview.append(stat_sheet_overview)
+    except:
+        # re raise uncaught exceptions here so stat_overview can be observed
+        raise
+
+    stat_overview.to_csv(fr'..\strategy_output\scan\overviews\sp500_{interval}_{days}.csv')
 
     return stat_overview
 
 
 def download_data(tickers, days, interval):
-
-    stat_overview = pd.DataFrame()
 
     for i, ticker in enumerate(tickers):
         data = yf_get_stock_data(ticker, days, interval)
@@ -1085,8 +1110,20 @@ def download_data(tickers, days, interval):
         print(f'({i}/{len(tickers)}) {file_name}')
 
 
+def price_data_to_relative_series(tickers):
+    """
+
+    translate all given tickers to relative data and plot
+    """
+    
+
+
 if __name__ == "__main__":
-    t = get_wikipedia_stocks('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')
-    download_data(t, 58, '15m')
+    # sp500_wiki = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+    #
+    # t, df = get_wikipedia_stocks(sp500_wiki)
+    rd = pd.read_csv(r'..\strategy_output\scan\stock_info\sp500_regimes.csv')
+    # df.to_csv(fr'..\strategy_output\scan\stock_info\sp500_info.csv')
+    main(rd)
     # main()
     print('d')
