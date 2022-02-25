@@ -1102,7 +1102,7 @@ def main(regime_data):
 
 
 def download_data(tickers, days, interval):
-
+    """download ticker data to this project directory"""
     for i, ticker in enumerate(tickers):
         data = yf_get_stock_data(ticker, days, interval)
         file_name = f'{ticker}_{interval}_{days}d.csv'
@@ -1110,20 +1110,46 @@ def download_data(tickers, days, interval):
         print(f'({i}/{len(tickers)}) {file_name}')
 
 
-def price_data_to_relative_series(tickers):
+def price_data_to_relative_series(symbols: t.List[str], bench_symbol: str, interval: str, days: int):
     """
-
+    TODO optional fx data
     translate all given tickers to relative data and plot
     """
-    
+    file_name_fmt = '{0}_{1}_{2}d.csv'.format
+    data_path_fmt = r'..\strategy_output\price_data\{0}'.format
+
+    bench_file_name = file_name_fmt(bench_symbol, interval, days)
+    bench_data = pd.read_csv(data_path_fmt(bench_file_name))
+    bench_data = bench_data.set_index('Datetime').rename(columns={'close': 'spy_close'})
+    r_data = pd.DataFrame(index=bench_data.index)
+
+    for i, symbol in enumerate(symbols):
+        file_name = file_name_fmt(symbol, interval, days)
+        price_data = pd.read_csv(data_path_fmt(file_name))
+        price_data = price_data.set_index('Datetime')
+        r_data[symbol] = regime.relative(price_data, bench_data, bm_col='spy_close')['rclose']
+        print(f'({i}/{len(symbols)}) {symbol}')
+
+    latest_data = r_data.iloc[-2]
+    latest_data = latest_data.sort_values()
+    r_data.plot()
+    plt.show()
+    top_performers = latest_data.iloc[:10, -10:]
+    print('d')
 
 
 if __name__ == "__main__":
-    # sp500_wiki = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
-    #
+    sp500_wiki = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+
+    d = 58
+    interv = '15m'
     # t, df = get_wikipedia_stocks(sp500_wiki)
     rd = pd.read_csv(r'..\strategy_output\scan\stock_info\sp500_regimes.csv')
+    price_data_to_relative_series(rd.Symbol.to_list(), 'SPY', '15m', 58)
+    # t += ['SPY']
+    # download_data(t, d, interv)
+
     # df.to_csv(fr'..\strategy_output\scan\stock_info\sp500_info.csv')
-    main(rd)
+    # main(rd)
     # main()
     print('d')

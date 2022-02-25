@@ -345,19 +345,17 @@ def retracement_swing(
 
 def relative(
     df: pd.DataFrame,
-    _o: str,
-    _h: str,
-    _l: str,
-    _c: str,
     bm_df: pd.DataFrame,
-    bm_col: str,
-    start: pd.Timestamp,
-    end: pd.Timestamp,
+    bm_col: str = 'close',
+    _o: str = 'open',
+    _h: str = 'high',
+    _l: str = 'low',
+    _c: str = 'close',
     ccy_df: typing.Optional[pd.DataFrame] = None,
     ccy_col: typing.Optional[str] = None,
     dgt: typing.Optional[int] = None,
     rebase: typing.Optional[bool] = True
-):
+) -> pd.DataFrame:
     """
     df: df
     bm_df, bm_col: df benchmark dataframe & column name
@@ -366,37 +364,51 @@ def relative(
     start/end: string or offset
     rebase: boolean rebase to beginning or continuous series
     """
-    # Slice df dataframe from start to end period: either offset or datetime
-    df = df[start:end]
+
+    # BJ: No, input dataframe should already be sliced
+    # # Slice df dataframe from start to end period: either offset or datetime
+    # df = df[start:end]
 
     # inner join of benchmark & currency: only common values are preserved
     df = df.join(bm_df[[bm_col]], how="inner")
-
+    adjustment = df[bm_col].copy()
     if ccy_df is not None:
         df = df.join(ccy_df[[ccy_col]], how="inner")
+        adjustment = df[bm_col].mul(df["ccy"])
+        if dgt is not None:
+            adjustment = round(adjustment, dgt)
 
     # rename benchmark name as bm and currency as ccy
-    df.rename(columns={bm_col: "bm", ccy_col: "ccy"}, inplace=True)
+    # df.rename(columns={bm_col: bm_col, ccy_col: "ccy"}, inplace=True)
 
     # Adjustment factor: calculate the scalar product of benchmark and currency
-    product = df["bm"].mul(df["ccy"])
-    if dgt is not None:
-        product = round(product, dgt)
 
-    df["bmfx"] = product.fillna(method="ffill")
+    df["bmfx"] = adjustment.fillna(method="ffill")
 
     if rebase is True:
         df["bmfx"] = df["bmfx"].div(df["bmfx"][0])
 
     # Divide absolute price by fxcy adjustment factor and rebase to first value
-    df["r" + str(_o)] = round(df[_o].div(df["bmfx"]), dgt)
-    df["r" + str(_h)] = round(df[_h].div(df["bmfx"]), dgt)
-    df["r" + str(_l)] = round(df[_l].div(df["bmfx"]), dgt)
-    df["r" + str(_c)] = round(df[_c].div(df["bmfx"]), dgt)
-    df = df.drop(["bm", "ccy", "bmfx"], axis=1)
+    _ro = "r" + str(_o)
+    _rh = "r" + str(_h)
+    _rl = "r" + str(_l)
+    _rc = "r" + str(_c)
+
+    df[_ro] = df[_o].div(df["bmfx"] * df[_o][0]) * df['bmfx'][0]
+    df[_rh] = df[_h].div(df["bmfx"] * df[_h][0]) * df['bmfx'][0]
+    df[_rl] = df[_l].div(df["bmfx"] * df[_l][0]) * df['bmfx'][0]
+    df[_rc] = df[_c].div(df["bmfx"] * df[_c][0]) * df['bmfx'][0]
+
+    if dgt is not None:
+        df["r" + str(_o)] = round(df["r" + str(_o)], dgt)
+        df["r" + str(_h)] = round(df["r" + str(_h)], dgt)
+        df["r" + str(_l)] = round(df["r" + str(_l)], dgt)
+        df["r" + str(_c)] = round(df["r" + str(_c)], dgt)
+
+    # drop after function is called, user decides
+    # df = df.drop([bm_col, "ccy", "bmfx"], axis=1)
 
     return df
-
 
 def init_swings(
     df: pd.DataFrame,
