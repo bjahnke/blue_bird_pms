@@ -57,7 +57,7 @@ def regime_slices(df, regime_col, regime_val=None):
     ends = ends_na(df, regime_col)
     res = []
     for i, end_date in enumerate(ends.index.to_list()):
-        data_slice = df.loc[starts.index[i] : end_date]
+        data_slice = df.loc[starts.index[i]: end_date]
         if regime_val is not None and data_slice[regime_col].iloc[0] == regime_val:
             res.append(data_slice)
 
@@ -97,7 +97,7 @@ class Table(metaclass=ABCMeta):
 
     @property
     @abstractmethod
-    def mandatory_cols(self):
+    def mandatory_cols(self) -> t.List[str]:
         """subclasses must define a class attribute mandatory_cols"""
 
     @property
@@ -145,7 +145,7 @@ class PivotTable(Table, metaclass=ABCMeta):
     def unpivot(self, freq, valid_dates):
         """unpivot the dataframe, filtered by give valid dates"""
         un_pivoted = unpivot(self.data, self._start_col, self._end_col, freq)
-        return un_pivoted.loc[un_pivoted.date.isin(valid_dates)].set_index('date')
+        return un_pivoted.loc[un_pivoted.date.isin(valid_dates)].set_index("date")
 
     @property
     def count(self) -> int:
@@ -160,10 +160,22 @@ class PivotTable(Table, metaclass=ABCMeta):
 
 class SignalTable(PivotTable):
     # TODO add current weight column
-    mandatory_cols = ["entry", "trail_stop", "fixed_stop", "dir", 'exit_signal_date', 'partial_exit_date']
+    mandatory_cols = [
+        "entry",
+        "trail_stop",
+        "fixed_stop",
+        "dir",
+        "exit_signal_date",
+        "partial_exit_date",
+    ]
 
-    def __init__(self, data: pd.DataFrame, name='signals'):
-        super().__init__(data=data, name=name, start_date_col='entry', end_date_col='exit_signal_date')
+    def __init__(self, data: pd.DataFrame, name="signals"):
+        super().__init__(
+            data=data,
+            name=name,
+            start_date_col="entry",
+            end_date_col="exit_signal_date",
+        )
 
     @property
     def entry(self):
@@ -213,5 +225,3 @@ def unpivot(
     unpivot_table = unpivot_table.explode(new_date_col, ignore_index=True)
     # unpivot_table = unpivot_table.drop(columns=[start_date_col, end_date_col])
     return unpivot_table
-
-

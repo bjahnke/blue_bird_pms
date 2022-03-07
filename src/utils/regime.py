@@ -197,7 +197,7 @@ def cleanup_latest_swing(df, shi, slo, rt_hi, rt_lo):
         s_hi = df.loc[pd.notnull(df[shi]), shi][-1]
         slo_dt = df.loc[pd.notnull(df[slo]), slo].index[-1]
         s_lo = df.loc[pd.notnull(df[slo]), slo][-1]
-    except IndexError:
+    except (IndexError, KeyError):
         raise NotEnoughDataError
 
     len_shi_dt = len(df[:shi_dt])
@@ -226,10 +226,13 @@ def latest_swing_variables(df, shi, slo, rt_hi, rt_lo, _h, _l, _c):
     """
     Latest swings dates & values
     """
-    shi_dt = df.loc[pd.notnull(df[shi]), shi].index[-1]
-    slo_dt = df.loc[pd.notnull(df[slo]), slo].index[-1]
-    s_hi = df.loc[pd.notnull(df[shi]), shi][-1]
-    s_lo = df.loc[pd.notnull(df[slo]), slo][-1]
+    try:
+        shi_dt = df.loc[pd.notnull(df[shi]), shi].index[-1]
+        slo_dt = df.loc[pd.notnull(df[slo]), slo].index[-1]
+        s_hi = df.loc[pd.notnull(df[shi]), shi][-1]
+        s_lo = df.loc[pd.notnull(df[slo]), slo][-1]
+    except IndexError:
+        raise NotEnoughDataError
 
     if slo_dt > shi_dt:
         swg_var = [
@@ -346,15 +349,15 @@ def retracement_swing(
 def relative(
     df: pd.DataFrame,
     bm_df: pd.DataFrame,
-    bm_col: str = 'close',
-    _o: str = 'open',
-    _h: str = 'high',
-    _l: str = 'low',
-    _c: str = 'close',
+    bm_col: str = "close",
+    _o: str = "open",
+    _h: str = "high",
+    _l: str = "low",
+    _c: str = "close",
     ccy_df: typing.Optional[pd.DataFrame] = None,
     ccy_col: typing.Optional[str] = None,
     dgt: typing.Optional[int] = None,
-    rebase: typing.Optional[bool] = True
+    rebase: typing.Optional[bool] = True,
 ) -> pd.DataFrame:
     """
     df: df
@@ -394,10 +397,10 @@ def relative(
     _rl = "r" + str(_l)
     _rc = "r" + str(_c)
 
-    df[_ro] = df[_o].div(df["bmfx"] * df[_o][0]) * df['bmfx'][0]
-    df[_rh] = df[_h].div(df["bmfx"] * df[_h][0]) * df['bmfx'][0]
-    df[_rl] = df[_l].div(df["bmfx"] * df[_l][0]) * df['bmfx'][0]
-    df[_rc] = df[_c].div(df["bmfx"] * df[_c][0]) * df['bmfx'][0]
+    df[_ro] = df[_o].div(df["bmfx"] * df[_o][0]) * df["bmfx"][0]
+    df[_rh] = df[_h].div(df["bmfx"] * df[_h][0]) * df["bmfx"][0]
+    df[_rl] = df[_l].div(df["bmfx"] * df[_l][0]) * df["bmfx"][0]
+    df[_rc] = df[_c].div(df["bmfx"] * df[_c][0]) * df["bmfx"][0]
 
     if dgt is not None:
         df["r" + str(_o)] = round(df["r" + str(_o)], dgt)
@@ -409,6 +412,7 @@ def relative(
     # df = df.drop([bm_col, "ccy", "bmfx"], axis=1)
 
     return df
+
 
 def init_swings(
     df: pd.DataFrame,
@@ -575,6 +579,9 @@ def regime_floor_ceiling(
             )
     #             breakdown = False
     #             breakout = True
+
+    if len(rg_ch_list) == 0:
+        raise NotEnoughDataError
 
     # POPULATE FLOOR,CEILING, RG CHANGE COLUMNS
     df.loc[floor_ix_list[1:], flr] = floor_list

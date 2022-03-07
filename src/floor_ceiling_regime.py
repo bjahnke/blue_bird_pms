@@ -147,7 +147,7 @@ def update_sw_lag(swing_lags: pd.Series, swings: pd.Series, discovered_sw_dates)
     swing_lags = swing_lags.reindex(swings.index)
     latest_sw = swings.loc[~pd.isna(swings)].iloc[-1:]
     if latest_sw.index not in discovered_sw_dates:
-        swing_lags.loc[latest_sw.index[0]:] = latest_sw[0]
+        swing_lags.loc[latest_sw.index[0] :] = latest_sw[0]
         discovered_sw_dates.append(latest_sw.index)
 
     return swing_lags
@@ -236,33 +236,6 @@ def get_follow_peaks(
     return follow_peaks, pivot_table
 
 
-def swing_signal_count(df, raw_signal_col, regime_col, regime_val=None) -> pd.Series:
-    """
-
-    :param df:
-    :param raw_signal_col:
-    :param regime_col:
-    :param regime_val:
-    :return:
-    """
-    regime_slices = pda.regime_slices(df, regime_col, regime_val)
-    counts = []
-    for regime_slice in regime_slices:
-        counts.append(regime_slice[raw_signal_col].cummax())
-
-    return pd.concat(counts)
-
-
-def pyramid(position, root=2):
-    return 1 / (1 + position) ** (1 / root)
-
-
-def assign_pyramid_weight(df, regime_col, entry_count_col, regime_val=None):
-    weights = []
-    for regime_slice in pda.regime_slices(df, regime_col, regime_val):
-        weights.append(pyramid(regime_slice[entry_count_col]))
-
-
 def regime_ranges(df, rg_col: str):
     start_col = "start"
     end_col = "end"
@@ -281,8 +254,10 @@ def regime_ranges(df, rg_col: str):
     boundaries[start_col][end_col] = boundaries[end_col][end_col]
     return boundaries[start_col][[start_col, end_col, rg_col]]
 
+
 class NoEntriesError(Exception):
     """no entries detected"""
+
 
 def get_all_entry_candidates(
     price: pd.DataFrame,
@@ -334,10 +309,7 @@ def get_all_entry_candidates(
 
 
 def get_regime_signal_candidates(
-    regime: pd.Series,
-    entry_table: pd.DataFrame,
-    entry_lvls,
-    highest_peak_lvl
+    regime: pd.Series, entry_table: pd.DataFrame, entry_lvls, highest_peak_lvl
 ):
     """get all regime candidates for a single regime"""
     # set 'start'
@@ -497,6 +469,10 @@ def draw_stop_line(
     return stop_line, exit_signal_date, partial_exit_date, stop_loss_exit_signal
 
 
+def draw_french_stop(signals):
+    pass
+
+
 def process_signal_data(
     price_data: pd.DataFrame,
     regimes: pd.DataFrame,
@@ -591,14 +567,16 @@ def process_signal_data(
 
 def fc_scale_strategy(
     price_data: pd.DataFrame,
-    side_only: int,
     distance_pct=0.05,
     retrace_pct=0.05,
     swing_window=63,
     sw_lvl=3,
     regime_threshold=0.5,
+    trail_offset_pct=0.01,
+    r_multiplier=1.5,
     entry_lvls: t.List[int] = None,
     highest_peak_lvl: int = 3,
+    side_only: t.Optional[int] = None,
 ):
     if entry_lvls is None:
         entry_lvls = [2]
@@ -618,11 +596,17 @@ def fc_scale_strategy(
         sw_lvl=sw_lvl,
         standard_dev=standard_dev,
         regime_threshold=regime_threshold,
-        side_only=side_only
+        side_only=side_only,
     )
 
     valid_entries, stop_loss_series = init_signal_stop_loss_tables(
-        price_data, regime_table, peak_table, entry_lvls, highest_peak_lvl
+        price_data,
+        regime_table,
+        peak_table,
+        entry_lvls,
+        highest_peak_lvl,
+        offset_pct=trail_offset_pct,
+        r_multiplier=r_multiplier,
     )
 
     return (
@@ -652,7 +636,11 @@ def init_peak_table(
 
 
 def init_regime_table(
-    enhanced_price_data: pd.DataFrame, sw_lvl, standard_dev, regime_threshold, side_only
+    enhanced_price_data: pd.DataFrame,
+    sw_lvl,
+    standard_dev,
+    regime_threshold,
+    side_only=None,
 ):
     """initialization of regime table bundled together"""
     shi = f"hi{sw_lvl}"
@@ -670,19 +658,41 @@ def init_regime_table(
         threshold=regime_threshold,
     )
 
-    data_with_regimes = data_with_regimes.loc[data_with_regimes.rg == side_only]
+    if side_only is not None:
+        data_with_regimes = data_with_regimes.loc[data_with_regimes.rg == side_only]
 
     return regime_ranges(data_with_regimes, "rg"), data_with_regimes
 
 
 def init_signal_stop_loss_tables(
-    price_data, regime_table, peak_table, entry_lvls, highest_peak_lvl
+    price_data,
+    regime_table,
+    peak_table,
+    entry_lvls,
+    highest_peak_lvl,
+    offset_pct,
+    r_multiplier,
 ) -> t.Tuple[pd.DataFrame, pd.DataFrame]:
     raw_signals = get_all_entry_candidates(
         price_data, regime_table, peak_table, entry_lvls, highest_peak_lvl
     )
 
-    return process_signal_data(price_data, regime_table, raw_signals)
+    return process_signal_data(
+        price_data,
+        regime_table,
+        raw_signals,
+        offset_pct=offset_pct,
+        r_multiplier=r_multiplier,
+    )
+
+
+def init_french_stop_table(entry_table: pd.DataFrame, regime_table: pd.DataFrame) -> pd.DataFrame:
+    """when new re-entry occurs, prior entries within regime have stop loss set to previous fixed stop loss"""
+    for idx, rg_data in regime_table.iterrows():
+        
+        rg_entries = entry_table.loc[
+            pda.date_slice(rg_data.start, rg_data.end, entry_table.entry)
+        ]
 
 
 def calc_stats(
@@ -699,10 +709,6 @@ def calc_stats(
     :param freq:
     :param signals:
     :param price_data:
-    :param strategy_data:
-    :param signals_table
-    :param strategy_returns_col:
-    :param passive_returns_col:
     :param min_periods:
     :param window:
     :param percentile:
@@ -713,15 +719,17 @@ def calc_stats(
     # TODO include regime returns
 
     signal_table = pda.SignalTable(signals.copy())
-    signal_table.data['trade_count'] = signal_table.counts
+    signal_table.data["trade_count"] = signal_table.counts
     signals_un_pivot = signal_table.unpivot(freq=freq, valid_dates=price_data.index)
-    signals_un_pivot = signals_un_pivot.loc[~signals_un_pivot.index.duplicated(keep='first')]
+    signals_un_pivot = signals_un_pivot.loc[
+        ~signals_un_pivot.index.duplicated(keep="last")
+    ]
 
     passive_returns_1d = ts.simple_log_returns(price_data.close)
-    signals_un_pivot['returns_1d'] = passive_returns_1d
+    signals_un_pivot["returns_1d"] = passive_returns_1d
     # don't use entry date to calculate returns
-    signals_un_pivot.loc[signal_table.entry, 'returns_1d'] = 0
-    strategy_returns_1d = signals_un_pivot['returns_1d'] * signals_un_pivot.dir
+    signals_un_pivot.loc[signal_table.entry, "returns_1d"] = 0
+    strategy_returns_1d = signals_un_pivot["returns_1d"] * signals_un_pivot.dir
 
     # Performance
     cumul_passive = ts.cumulative_returns_pct(passive_returns_1d, min_periods)
@@ -762,7 +770,7 @@ def calc_stats(
     csr_roll = ts.common_sense_ratio(pr_roll, tr_roll)
 
     # Trade Count
-    trade_count = signals_un_pivot['trade_count']
+    trade_count = signals_un_pivot["trade_count"]
     signal_roll = trade_count.diff(window)
 
     win_rate = (win_count / total_count).fillna(method="ffill")
@@ -823,7 +831,9 @@ def calc_stats(
     return pd.DataFrame.from_dict(stat_sheet_dict)
 
 
-def rolling_plot(price_data: pd.DataFrame, ndf, stop_loss_t, ticker, ):
+def rolling_plot(
+    price_data: pd.DataFrame, ndf, stop_loss_t, ticker,
+):
     """
     recalculates the strategy on a rolling window of the given data to visualize how
     the strategy behaves
@@ -922,7 +932,7 @@ def rolling_plot(price_data: pd.DataFrame, ndf, stop_loss_t, ticker, ):
                 if axis is None:
                     axis = (
                         d[[_close, "hi3", "lo3", "clg", "flr", "rg_ch", "rg"]]
-                        .iloc[index - plot_window:]
+                        .iloc[index - plot_window :]
                         .plot(
                             style=["grey", "ro", "go", "kv", "k^", "c:", "b-."],
                             figsize=(15, 5),
@@ -1011,92 +1021,160 @@ def yf_get_stock_data(symbol, days, interval: str) -> pd.DataFrame:
 
 def get_cached_data(symbol, days, interval) -> pd.DataFrame:
     """get price data from local storage"""
-    file_name = f'{symbol}_{interval}_{days}d.csv'
-    data = pd.read_csv(fr'..\strategy_output\price_data\{file_name}')
+    file_name = f"{symbol}_{interval}_{days}d.csv"
+    data = pd.read_csv(fr"..\strategy_output\price_data\{file_name}")
     data = data.rename(
         columns={"Open": "open", "High": "high", "Low": "low", "Close": "close"}
     )
-    data.Datetime = pd.to_datetime(data.Datetime)
-    data = data.set_index(data.Datetime)
+
+    data_cols = data.columns.to_list()
+
+    if 'Date' in data_cols:
+        date_col = 'Date'
+    elif 'Datetime' in data_cols:
+        date_col = 'Datetime'
+    else:
+        raise
+
+    data[date_col] = pd.to_datetime(data[date_col])
+    data = data.set_index(data[date_col])
+
     return data[["open", "high", "low", "close"]]
 
 
 def get_wikipedia_stocks(url):
     """get stock data (names, sectors, etc) from wikipedia"""
     wiki_df = pd.read_html(url)[0]
-    tickers_list = list(wiki_df['Symbol'])
+    tickers_list = list(wiki_df["Symbol"])
     return tickers_list[:], wiki_df
 
 
-def scan_all(symbols, get_data_method: t.Callable[[str], pd.DataFrame], regime_data):
+def scan_all(
+    symbols,
+    get_data_method: t.Callable[[str], pd.DataFrame],
+    regime_data,
+    bench_df: pd.DataFrame = None,
+    distance_pct=0.05,
+    retrace_pct=0.05,
+    swing_window=63,
+    sw_lvl=3,
+    regime_threshold=0.5,
+    entry_lvls=None,
+    highest_peak_lvl=3,
+    trail_offset_pct=0.01,
+    r_multiplier=1.5,
+    freq='15T'
+):
+    if entry_lvls is None:
+        entry_lvls = [2]
+
     """scan all data"""
     for i, symbol in enumerate(symbols):
-        data = get_data_method(symbol)
-
-        if data.empty:
-            print(f'{symbol}, no data')
+        try:
+            data = get_data_method(symbol)
+        except KeyError:
+            # if data is messed up, usually cached data
             continue
 
+        if data.empty:
+            print(f"{symbol}, no data")
+            continue
+
+        if bench_df is not None:
+            # TODO rebase only necessary for visual performance comparison?
+            working_data = regime.relative(
+                df=data, bm_df=bench_df, bm_col="spy_close", rebase=False
+            )
+            working_data = working_data[["ropen", "rhigh", "rlow", "rclose"]]
+            working_data = working_data.rename(
+                columns={
+                    "ropen": "open",
+                    "rhigh": "high",
+                    "rlow": "low",
+                    "rclose": "close",
+                }
+            )
+        else:
+            working_data = data.copy()
+
         try:
-            ticker_regime_score = regime_data.loc[regime_data['Symbol'] == symbol, 'score'].iloc[0]
-            if ticker_regime_score > 0:
-                side_only = 1
-            elif ticker_regime_score < 0:
-                side_only = -1
-            else:
-                # skip if regime score is 0: trend is sideways?
-                continue
+            # ticker_regime_score = regime_data.loc[regime_data['Symbol'] == symbol, 'score'].iloc[0]
+            # if ticker_regime_score > 0:
+            #     side_only = 1
+            # elif ticker_regime_score < 0:
+            #     side_only = -1
+            # else:
+            #     # skip if regime score is 0: trend is sideways?
+            #     continue
+            side_only = None
 
             ndf, peak_t, rg_t, valid_t, stop_loss_t = fc_scale_strategy(
-                price_data=data,
+                price_data=working_data,
                 side_only=side_only,
-                distance_pct=0.05,
-                retrace_pct=0.05,
-                swing_window=63,
-                sw_lvl=3,
-                regime_threshold=0.5,
-                entry_lvls=[2],
-                highest_peak_lvl=3,
+                distance_pct=distance_pct,
+                retrace_pct=retrace_pct,
+                swing_window=swing_window,
+                sw_lvl=sw_lvl,
+                regime_threshold=regime_threshold,
+                entry_lvls=entry_lvls,
+                highest_peak_lvl=highest_peak_lvl,
+                trail_offset_pct=trail_offset_pct,
+                r_multiplier=r_multiplier
             )
         except (regime.NotEnoughDataError, NoEntriesError):
             continue
 
-        stat_sheet = calc_stats(data, valid_t, min_periods=50, window=200, percentile=0.05, limit=5, freq='15T')
-        print(f'({i}/{len(symbols)}) {symbol}')
+        stat_sheet = calc_stats(
+            data,
+            valid_t,
+            min_periods=50,
+            window=200,
+            percentile=0.05,
+            limit=5,
+            freq=freq,
+        )
+        print(f"({i}/{len(symbols)}) {symbol}")
         yield {
-            'symbol': symbol,
-            'ndf': ndf,
-            'peak_t': peak_t,
-            'rg_t': rg_t,
-            'valid_t': valid_t,
-            'stop_loss_t': stop_loss_t,
-            'stat_sheet': stat_sheet
+            "symbol": symbol,
+            "ndf": ndf,
+            "peak_t": peak_t,
+            "rg_t": rg_t,
+            "valid_t": valid_t,
+            "stop_loss_t": stop_loss_t,
+            "stat_sheet": stat_sheet,
         }
 
 
-def main(regime_data):
+def main():
     days = 58
-    interval = '15m'
-
-    tickers = regime_data['Symbol'].to_list()
+    interval = "15m"
+    freq = '15T'
+    regime_data = pd.read_csv(r"..\strategy_output\scan\stock_info\sp500_regimes.csv")
+    bench_df = get_cached_data("SPY", days=days, interval=interval)
+    bench_df = bench_df.rename(columns={"close": "spy_close"})
+    tickers = regime_data["Symbol"].to_list()
 
     stat_overview = pd.DataFrame()
 
     def get_data_method(symb):
         return get_cached_data(symb, days=days, interval=interval)
 
-    print('scanning...')
+    print("scanning...")
     try:
-        for scan_data in scan_all(tickers, get_data_method, regime_data):
-            stat_sheet = scan_data['stat_sheet'].reset_index().copy()
-            stat_sheet_overview = stat_sheet.iloc[-1].copy()
-            stat_sheet_overview['symbol'] = scan_data['symbol']
+        for scan_data in scan_all(
+            tickers, get_data_method, regime_data, bench_df=bench_df, trail_offset_pct=0.01, freq=freq
+        ):
+            stat_sheet = scan_data["stat_sheet"].reset_index().copy()
+            stat_sheet_overview = stat_sheet.iloc[-2].copy()
+            stat_sheet_overview["symbol"] = scan_data["symbol"]
             stat_overview = stat_overview.append(stat_sheet_overview)
     except:
         # re raise uncaught exceptions here so stat_overview can be observed
         raise
 
-    stat_overview.to_csv(fr'..\strategy_output\scan\overviews\sp500_{interval}_{days}.csv')
+    stat_overview.to_csv(
+        fr"..\strategy_output\scan\overviews\sp500_{interval}_{days}.csv"
+    )
 
     return stat_overview
 
@@ -1105,51 +1183,66 @@ def download_data(tickers, days, interval):
     """download ticker data to this project directory"""
     for i, ticker in enumerate(tickers):
         data = yf_get_stock_data(ticker, days, interval)
-        file_name = f'{ticker}_{interval}_{days}d.csv'
-        data.to_csv(fr'..\strategy_output\price_data\{file_name}')
-        print(f'({i}/{len(tickers)}) {file_name}')
+        file_name = f"{ticker}_{interval}_{days}d.csv"
+        data.to_csv(fr"..\strategy_output\price_data\{file_name}")
+        print(f"({i}/{len(tickers)}) {file_name}")
 
 
-def price_data_to_relative_series(symbols: t.List[str], bench_symbol: str, interval: str, days: int):
+def price_data_to_relative_series(
+    symbols: t.List[str], bench_symbol: str, interval: str, days: int, from_cache=False
+) -> pd.DataFrame:
     """
     TODO optional fx data
     translate all given tickers to relative data and plot
     """
-    file_name_fmt = '{0}_{1}_{2}d.csv'.format
-    data_path_fmt = r'..\strategy_output\price_data\{0}'.format
+    file_name_fmt = "{0}_{1}_{2}d.csv".format
+    data_path_fmt = r"..\strategy_output\price_data\{0}".format
+    r_out_fmt = "r{0}_{1}_{2}d.csv".format
 
     bench_file_name = file_name_fmt(bench_symbol, interval, days)
     bench_data = pd.read_csv(data_path_fmt(bench_file_name))
-    bench_data = bench_data.set_index('Datetime').rename(columns={'close': 'spy_close'})
+    bench_data = bench_data.set_index("Datetime").rename(columns={"close": "spy_close"})
     r_data = pd.DataFrame(index=bench_data.index)
 
     for i, symbol in enumerate(symbols):
         file_name = file_name_fmt(symbol, interval, days)
         price_data = pd.read_csv(data_path_fmt(file_name))
-        price_data = price_data.set_index('Datetime')
-        r_data[symbol] = regime.relative(price_data, bench_data, bm_col='spy_close')['rclose']
-        print(f'({i}/{len(symbols)}) {symbol}')
+        price_data = price_data.set_index("Datetime")
+        # if symbol == 'FB':
+        #     price_data.close.plot()
+        #     plt.show()
 
-    latest_data = r_data.iloc[-2]
-    latest_data = latest_data.sort_values()
-    r_data.plot()
-    plt.show()
-    top_performers = latest_data.iloc[:10, -10:]
-    print('d')
+        # TODO NOTE: try added because original price data was overwritten
+        #   remove with price data can be corrected (write files to different folders in the future
+        try:
+            r_symbol_data = regime.relative(price_data, bench_data, bm_col="spy_close")[
+                ["ropen", "rhigh", "rlow", "rclose"]
+            ]
+        except KeyError:
+            continue
+        r_symbol_data.to_csv(data_path_fmt(r_out_fmt(symbol, interval, days)))
+        r_data[symbol] = r_symbol_data["rclose"]
+        print(f"({i}/{len(symbols)}) {symbol}")
+
+    return r_data
 
 
 if __name__ == "__main__":
-    sp500_wiki = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+    sp500_wiki = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 
-    d = 58
-    interv = '15m'
     # t, df = get_wikipedia_stocks(sp500_wiki)
-    rd = pd.read_csv(r'..\strategy_output\scan\stock_info\sp500_regimes.csv')
-    price_data_to_relative_series(rd.Symbol.to_list(), 'SPY', '15m', 58)
-    # t += ['SPY']
-    # download_data(t, d, interv)
 
-    # df.to_csv(fr'..\strategy_output\scan\stock_info\sp500_info.csv')
-    # main(rd)
-    # main()
-    print('d')
+    main()
+    # res = price_data_to_relative_series(rd.Symbol.to_list(), 'SPY', '15m', 58)
+    # latest_data = r_data.iloc[-2]
+    # latest_data = latest_data.sort_values()
+    # r_data.plot()
+    # plt.show()
+    # top_performers = latest_data.iloc[-10:]
+    # bot_performers = latest_data.iloc[:10]
+    # r_data[
+    #     top_performers.index.to_list() +
+    #     bot_performers.index.to_list()
+    # ].plot()
+    # plt.show()
+    print("d")
