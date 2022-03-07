@@ -201,6 +201,30 @@ class SignalTable(PivotTable):
     def partial_exit_date(self):
         return self.data.partial_exit_date
 
+    def pyramid(self) -> pd.Series:
+        row_count = pd.Series(data=self.counts) - 1
+        return trading_stats.pyramid(row_count, root=2)
+
+
+class PositionTable(PivotTable):
+    """
+    Table defines pivot periods where
+    """
+    mandatory_cols = [
+        'signal_id'
+        'initial_size',
+        'remaining_fraction',
+        'start',
+        'end'
+    ]
+
+    def __init__(self, data: pd.DataFrame, name="signals"):
+        super().__init__(
+            data=data,
+            name=name,
+            start_date_col="start",
+            end_date_col="end",
+        )
 
 # def date_ranges(start: pd.Series, end: pd.Series, freq: str):
 #     """concatenate date ranges for querying"""

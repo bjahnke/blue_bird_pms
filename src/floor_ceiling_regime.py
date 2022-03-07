@@ -1145,7 +1145,8 @@ def scan_all(
         }
 
 
-def main():
+def cached_main():
+    """use to run scanner on locally stored price data"""
     days = 58
     interval = "15m"
     freq = '15T'
@@ -1165,6 +1166,46 @@ def main():
             tickers, get_data_method, regime_data, bench_df=bench_df, trail_offset_pct=0.01, freq=freq
         ):
             stat_sheet = scan_data["stat_sheet"].reset_index().copy()
+            stat_sheet_overview = stat_sheet.iloc[-2].copy()
+            stat_sheet_overview["symbol"] = scan_data["symbol"]
+            stat_overview = stat_overview.append(stat_sheet_overview)
+    except:
+        # re raise uncaught exceptions here so stat_overview can be observed
+        raise
+
+    stat_overview.to_csv(
+        fr"..\strategy_output\scan\overviews\sp500_{interval}_{days}.csv"
+    )
+
+    return stat_overview
+
+
+def main():
+    """scans on recent data"""
+    days = 58
+    interval = "15m"
+    freq = '15T'
+    sp500_wiki = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+
+    tickers, _ = get_wikipedia_stocks(sp500_wiki)
+
+    def get_data_method(symb):
+        return yf_get_stock_data(symb, days=days, interval=interval)
+
+    # INPUTS END, Code start
+
+    stat_overview = pd.DataFrame()
+
+    bench_df = get_data_method("SPY")
+    bench_df = bench_df.rename(columns={"close": "spy_close"})
+
+    print("scanning...")
+    try:
+        for scan_data in scan_all(
+            tickers, get_data_method, None, bench_df=bench_df, trail_offset_pct=0.01, freq=freq
+        ):
+            stat_sheet = scan_data["stat_sheet"].reset_index().copy()
+            # TODO -2 because yf gives to the minute data despite before bar closes
             stat_sheet_overview = stat_sheet.iloc[-2].copy()
             stat_sheet_overview["symbol"] = scan_data["symbol"]
             stat_overview = stat_overview.append(stat_sheet_overview)
@@ -1228,10 +1269,6 @@ def price_data_to_relative_series(
 
 
 if __name__ == "__main__":
-    sp500_wiki = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-
-    # t, df = get_wikipedia_stocks(sp500_wiki)
-
     main()
     # res = price_data_to_relative_series(rd.Symbol.to_list(), 'SPY', '15m', 58)
     # latest_data = r_data.iloc[-2]

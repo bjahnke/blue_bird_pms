@@ -123,3 +123,12 @@ def robustness_score(grit, csr, sqn):
 
 def cumulative_returns_pct(returns, min_periods):
     return returns.expanding(min_periods=min_periods).sum().apply(np.exp) - 1
+
+
+def pyramid(position, root=2):
+    return 1 / (1 + position) ** (1 / root)
+
+
+def kelly(win_rate, avg_win, avg_loss):
+    """kelly position sizer"""
+    return win_rate / np.abs(avg_loss) - (1 - win_rate) / avg_win
