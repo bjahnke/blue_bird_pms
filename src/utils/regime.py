@@ -397,10 +397,10 @@ def relative(
     _rl = "r" + str(_l)
     _rc = "r" + str(_c)
 
-    df[_ro] = df[_o].div(df["bmfx"] * df[_o][0]) * df["bmfx"][0]
-    df[_rh] = df[_h].div(df["bmfx"] * df[_h][0]) * df["bmfx"][0]
-    df[_rl] = df[_l].div(df["bmfx"] * df[_l][0]) * df["bmfx"][0]
-    df[_rc] = df[_c].div(df["bmfx"] * df[_c][0]) * df["bmfx"][0]
+    df[_ro] = df[_o].div(df["bmfx"])
+    df[_rh] = df[_h].div(df["bmfx"])
+    df[_rl] = df[_l].div(df["bmfx"])
+    df[_rc] = df[_c].div(df["bmfx"])
 
     if dgt is not None:
         df["r" + str(_o)] = round(df["r" + str(_o)], dgt)
@@ -412,6 +412,10 @@ def relative(
     # df = df.drop([bm_col, "ccy", "bmfx"], axis=1)
 
     return df
+
+
+def simple_relative(df, bm_df):
+    return (df / bm_df) * 1000
 
 
 def init_swings(

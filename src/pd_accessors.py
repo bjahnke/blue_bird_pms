@@ -57,14 +57,13 @@ def regime_slices(df, regime_col, regime_val=None):
     ends = ends_na(df, regime_col)
     res = []
     for i, end_date in enumerate(ends.index.to_list()):
-        data_slice = df.loc[starts.index[i]: end_date]
+        data_slice = df.loc[starts.index[i] : end_date]
         if regime_val is not None and data_slice[regime_col].iloc[0] == regime_val:
             res.append(data_slice)
 
     return res
 
 
-@pd.api.extensions.register_series_accessor("pivot_row")
 class PivotRow(SeriesAccessorBase):
     mandatory_cols = ["start", "end", "rg"]
 
@@ -107,6 +106,10 @@ class Table(metaclass=ABCMeta):
     @property
     def name(self):
         return self._name
+
+    @classmethod
+    def init_empty_df(cls) -> pd.DataFrame:
+        return pd.DataFrame(columns=cls.mandatory_cols)
 
 
 class PriceTable(Table):
@@ -210,13 +213,8 @@ class PositionTable(PivotTable):
     """
     Table defines pivot periods where
     """
-    mandatory_cols = [
-        'signal_id'
-        'initial_size',
-        'remaining_fraction',
-        'start',
-        'end'
-    ]
+
+    mandatory_cols = ["signal_id" "initial_size", "remaining_fraction", "start", "end"]
 
     def __init__(self, data: pd.DataFrame, name="signals"):
         super().__init__(
@@ -225,6 +223,7 @@ class PositionTable(PivotTable):
             start_date_col="start",
             end_date_col="end",
         )
+
 
 # def date_ranges(start: pd.Series, end: pd.Series, freq: str):
 #     """concatenate date ranges for querying"""

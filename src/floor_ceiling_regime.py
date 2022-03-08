@@ -314,7 +314,7 @@ def get_regime_signal_candidates(
     """get all regime candidates for a single regime"""
     # set 'start'
     rg_entries = entry_table.loc[
-        regime.pivot_row.slice(entry_table.entry)
+        pda.PivotRow(regime).slice(entry_table.entry)
         # & regime.pivot_row.slice(entry_table.trail_stop)
         & (entry_table.type == regime.rg)
         & (entry_table.lvl.isin(entry_lvls))
@@ -479,9 +479,16 @@ def process_signal_data(
     entry_candidates: pd.DataFrame,
     offset_pct=0.01,
     r_multiplier=1.5,
-):
+) -> t.Tuple[pd.DataFrame, pd.Series]:
+    """
+    Execute stop loss logic to discover valid entries from the candidate list.
+    Valid entry occurs if all are true:
+        - entry price does not exceed stop price (fixed/trail??)
+        - entry price does not exceed prior entry price
+        - risk of prior trade is reduced (partial or full exit or first entry)
+    returns table of valid entries and time series containing stop loss values throughout regime
+    """
     # sourcery skip: merge-duplicate-blocks, remove-redundant-if
-    """process signal data"""
     trail_map = {
         1: TrailStop(
             pos_price_col="high", neg_price_col="low", cum_extreme="cummax", dir=1
@@ -561,8 +568,22 @@ def process_signal_data(
                     # if exit greater than partial exit, then potentially another signal can be added
                     start = partial_exit_date
 
-    stop_prices = pd.concat(stop_lines)
+    if len(stop_lines) > 0:
+        stop_prices = pd.concat(stop_lines)
+    else:
+        stop_prices = pd.Series()
+        assert valid_entries.empty  # TODO not sure if this can ever be false, so notify me in case it ever is
+        valid_entries = pda.SignalTable.init_empty_df()
     return valid_entries, stop_prices
+
+
+@dataclass
+class FcStrategyTables:
+    enhanced_price_data: pd.DataFrame
+    peak_table: pd.DataFrame
+    regime_table: pd.DataFrame
+    valid_entries: pd.DataFrame
+    stop_loss_series: pd.Series
 
 
 def fc_scale_strategy(
@@ -577,7 +598,7 @@ def fc_scale_strategy(
     entry_lvls: t.List[int] = None,
     highest_peak_lvl: int = 3,
     side_only: t.Optional[int] = None,
-):
+) -> FcStrategyTables:
     if entry_lvls is None:
         entry_lvls = [2]
 
@@ -609,7 +630,7 @@ def fc_scale_strategy(
         r_multiplier=r_multiplier,
     )
 
-    return (
+    return FcStrategyTables(
         enhanced_price_data,
         peak_table,
         regime_table,
@@ -672,11 +693,10 @@ def init_signal_stop_loss_tables(
     highest_peak_lvl,
     offset_pct,
     r_multiplier,
-) -> t.Tuple[pd.DataFrame, pd.DataFrame]:
+) -> t.Tuple[pd.DataFrame, pd.Series]:
     raw_signals = get_all_entry_candidates(
         price_data, regime_table, peak_table, entry_lvls, highest_peak_lvl
     )
-
     return process_signal_data(
         price_data,
         regime_table,
@@ -686,10 +706,12 @@ def init_signal_stop_loss_tables(
     )
 
 
-def init_french_stop_table(entry_table: pd.DataFrame, regime_table: pd.DataFrame) -> pd.DataFrame:
+def init_french_stop_table(
+    entry_table: pd.DataFrame, regime_table: pd.DataFrame
+) -> pd.DataFrame:
     """when new re-entry occurs, prior entries within regime have stop loss set to previous fixed stop loss"""
     for idx, rg_data in regime_table.iterrows():
-        
+
         rg_entries = entry_table.loc[
             pda.date_slice(rg_data.start, rg_data.end, entry_table.entry)
         ]
@@ -831,178 +853,7 @@ def calc_stats(
     return pd.DataFrame.from_dict(stat_sheet_dict)
 
 
-def rolling_plot(
-    price_data: pd.DataFrame, ndf, stop_loss_t, ticker,
-):
-    """
-    recalculates the strategy on a rolling window of the given data to visualize how
-    the strategy behaves
-    """
-    _open = "open"
-    _high = "high"
-    _low = "low"
-    _close = "close"
-    use_index = False
-    initial_size = 600
-    plot_window = 250
-    axis = None
-    index = initial_size
-    fp_rg = None
-    hi2_lag = None
-    lo2_lag = None
-    hi2_discovery_dts = []
-    lo2_discovery_dts = []
-    d = price_data[[_open, _high, _low, _close]].copy().iloc[:index]
 
-    ndf["stop_loss"] = stop_loss_t
-    a = ndf[
-        [_close, "hi3", "lo3", "clg", "flr", "rg_ch", "hi2", "lo2", "stop_loss"]
-    ].plot(
-        style=["grey", "ro", "go", "kv", "k^", "c:", "r.", "g."],
-        figsize=(15, 5),
-        grid=True,
-        title=str.upper(ticker),
-        use_index=use_index,
-    )
-
-    ndf["rg"].plot(
-        style=["b-."],
-        # figsize=(15, 5),
-        # marker='o',
-        secondary_y=["rg"],
-        ax=a,
-        use_index=use_index,
-    )
-    plt.show()
-    # all_retest_swing(data, 'rt', distance_percent, retrace_percent, swing_window)
-    # data[['close', 'hi3', 'lo3', 'rt']].plot(
-    #     style=['grey', 'rv', 'g^', 'ko'],
-    #     figsize=(10, 5), grid=True, title=str.upper(ticker))
-
-    # data[['close', 'hi3', 'lo3']].plot(
-    #     style=['grey', 'rv', 'g^'],
-    #     figsize=(20, 5), grid=True, title=str.upper(ticker))
-
-    # plt.show()
-    """
-    ohlc = ['Open','High','Low','Close']
-    _o,_h,_l,_c = [ohlc[h] for h in range(len(ohlc))]
-    rg_val = ['Hi3','Lo3','flr','clg','rg','rg_ch',1.5]
-    slo, shi,flr,clg,rg,rg_ch,threshold = [rg_val[s] for s in range(len(rg_val))]
-    stdev = df[_c].rolling(63).std(ddof=0)
-    df = regime_floor_ceiling(df,_h,_l,_c,slo, shi,flr,clg,rg,rg_ch,stdev,threshold)
-
-    df[[_c,'Hi3', 'Lo3','clg','flr','rg_ch','rg']].plot(    
-    style=['grey', 'ro', 'go', 'kv', 'k^','c:','y-.'],     
-    secondary_y= ['rg'],figsize=(20,5),    
-    grid=True, 
-    title = str.upper(ticker))
-
-    """
-
-    for idx, row in price_data.iterrows():
-        if (num := price_data.index.get_loc(idx)) <= index:
-            print(f"iter index {num}")
-            continue
-        d.at[idx] = row
-        try:
-            res = fc_scale_strategy(d)
-            d = res[0]
-
-            if fp_rg is None:
-                fp_rg = d.rg.copy()
-                fp_rg = fp_rg.fillna(0)
-                hi2_lag = d.hi2.copy()
-                lo2_lag = d.lo2.copy()
-            else:
-                fp_rg = fp_rg.reindex(d.rg.index)
-                new_val = d.rg.loc[pd.isna(fp_rg)][0]
-                fp_rg.loc[idx] = new_val
-
-                hi2_lag = update_sw_lag(hi2_lag, d.hi2, hi2_discovery_dts)
-                lo2_lag = update_sw_lag(lo2_lag, d.lo2, lo2_discovery_dts)
-
-        except KeyError:
-            pass
-        else:
-            pass
-            # live print procedure
-            try:
-                data_plot_window = len(d.index) - plot_window
-                if axis is None:
-                    axis = (
-                        d[[_close, "hi3", "lo3", "clg", "flr", "rg_ch", "rg"]]
-                        .iloc[index - plot_window :]
-                        .plot(
-                            style=["grey", "ro", "go", "kv", "k^", "c:", "b-."],
-                            figsize=(15, 5),
-                            secondary_y=["rg"],
-                            grid=True,
-                            title=str.upper(ticker),
-                            use_index=use_index,
-                        )
-                    )
-                    fp_rg.iloc[data_plot_window:].plot(
-                        style="y-.", secondary_y=True, use_index=use_index, ax=axis
-                    )
-                    hi2_lag.iloc[data_plot_window:].plot(
-                        style="r.", use_index=use_index, ax=axis
-                    )
-                    lo2_lag.iloc[data_plot_window:].plot(
-                        style="g.", use_index=use_index, ax=axis
-                    )
-                    plt.ion()
-                    plt.show()
-                    plt.pause(0.001)
-                else:
-                    plt.gca().cla()
-                    axis.clear()
-                    d[[_close, "hi3", "lo3", "clg", "flr", "rg_ch", "rg"]].iloc[
-                        data_plot_window:
-                    ].plot(
-                        style=["grey", "ro", "go", "kv", "k^", "c:", "b-."],
-                        figsize=(15, 5),
-                        secondary_y=["rg"],
-                        grid=True,
-                        title=str.upper(ticker),
-                        ax=axis,
-                        use_index=use_index,
-                    )
-                    fp_rg.iloc[data_plot_window:].plot(
-                        style="y-.", secondary_y=True, use_index=use_index, ax=axis
-                    )
-                    hi2_lag.iloc[data_plot_window:].plot(
-                        style="r.", use_index=use_index, ax=axis
-                    )
-                    lo2_lag.iloc[data_plot_window:].plot(
-                        style="g.", use_index=use_index, ax=axis
-                    )
-                    # d.rt.iloc[window:].plot(style='k.', use_index=use_index, ax=axis)
-                    plt.pause(0.001)
-            except Exception as e:
-                print(e)
-        print(idx)
-
-    # plt.close()
-    a = ndf[[_close, "hi3", "lo3", "clg", "flr", "rg_ch"]].plot(
-        style=["grey", "ro", "go", "kv", "k^", "c:"],
-        figsize=(15, 5),
-        grid=True,
-        title=str.upper(ticker),
-        use_index=use_index,
-    )
-    ndf["rg"].plot(
-        style=["b-."],
-        # figsize=(15, 5),
-        # marker='o',
-        secondary_y=["rg"],
-        ax=a,
-        use_index=use_index,
-    )
-    fp_rg.plot(style="y-.", secondary_y=True, use_index=use_index, ax=a)
-    hi2_lag.plot(style="r.", use_index=use_index, ax=axis)
-    lo2_lag.plot(style="g.", use_index=use_index, ax=axis)
-    plt.show()
 
 
 def yf_get_stock_data(symbol, days, interval: str) -> pd.DataFrame:
@@ -1022,17 +873,17 @@ def yf_get_stock_data(symbol, days, interval: str) -> pd.DataFrame:
 def get_cached_data(symbol, days, interval) -> pd.DataFrame:
     """get price data from local storage"""
     file_name = f"{symbol}_{interval}_{days}d.csv"
-    data = pd.read_csv(fr"..\strategy_output\price_data\{file_name}")
+    data = pd.read_csv(rf"..\strategy_output\price_data\{file_name}")
     data = data.rename(
         columns={"Open": "open", "High": "high", "Low": "low", "Close": "close"}
     )
 
     data_cols = data.columns.to_list()
 
-    if 'Date' in data_cols:
-        date_col = 'Date'
-    elif 'Datetime' in data_cols:
-        date_col = 'Datetime'
+    if "Date" in data_cols:
+        date_col = "Date"
+    elif "Datetime" in data_cols:
+        date_col = "Datetime"
     else:
         raise
 
@@ -1063,7 +914,7 @@ def scan_all(
     highest_peak_lvl=3,
     trail_offset_pct=0.01,
     r_multiplier=1.5,
-    freq='15T'
+    freq="15T",
 ):
     if entry_lvls is None:
         entry_lvls = [2]
@@ -1119,7 +970,7 @@ def scan_all(
                 entry_lvls=entry_lvls,
                 highest_peak_lvl=highest_peak_lvl,
                 trail_offset_pct=trail_offset_pct,
-                r_multiplier=r_multiplier
+                r_multiplier=r_multiplier,
             )
         except (regime.NotEnoughDataError, NoEntriesError):
             continue
@@ -1149,7 +1000,7 @@ def cached_main():
     """use to run scanner on locally stored price data"""
     days = 58
     interval = "15m"
-    freq = '15T'
+    freq = "15T"
     regime_data = pd.read_csv(r"..\strategy_output\scan\stock_info\sp500_regimes.csv")
     bench_df = get_cached_data("SPY", days=days, interval=interval)
     bench_df = bench_df.rename(columns={"close": "spy_close"})
@@ -1163,7 +1014,12 @@ def cached_main():
     print("scanning...")
     try:
         for scan_data in scan_all(
-            tickers, get_data_method, regime_data, bench_df=bench_df, trail_offset_pct=0.01, freq=freq
+            tickers,
+            get_data_method,
+            regime_data,
+            bench_df=bench_df,
+            trail_offset_pct=0.01,
+            freq=freq,
         ):
             stat_sheet = scan_data["stat_sheet"].reset_index().copy()
             stat_sheet_overview = stat_sheet.iloc[-2].copy()
@@ -1174,17 +1030,17 @@ def cached_main():
         raise
 
     stat_overview.to_csv(
-        fr"..\strategy_output\scan\overviews\sp500_{interval}_{days}.csv"
+        rf"..\strategy_output\scan\overviews\sp500_{interval}_{days}.csv"
     )
 
     return stat_overview
 
 
-def main():
+def main(write: bool):
     """scans on recent data"""
     days = 58
     interval = "15m"
-    freq = '15T'
+    freq = "15T"
     sp500_wiki = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 
     tickers, _ = get_wikipedia_stocks(sp500_wiki)
@@ -1202,7 +1058,12 @@ def main():
     print("scanning...")
     try:
         for scan_data in scan_all(
-            tickers, get_data_method, None, bench_df=bench_df, trail_offset_pct=0.01, freq=freq
+            tickers,
+            get_data_method,
+            None,
+            bench_df=bench_df,
+            trail_offset_pct=0.01,
+            freq=freq,
         ):
             stat_sheet = scan_data["stat_sheet"].reset_index().copy()
             # TODO -2 because yf gives to the minute data despite before bar closes
@@ -1213,9 +1074,10 @@ def main():
         # re raise uncaught exceptions here so stat_overview can be observed
         raise
 
-    stat_overview.to_csv(
-        fr"..\strategy_output\scan\overviews\sp500_{interval}_{days}.csv"
-    )
+    if write is True:
+        stat_overview.to_csv(
+            rf"..\strategy_output\scan\overviews\sp500_{interval}_{days}.csv"
+        )
 
     return stat_overview
 
@@ -1225,7 +1087,7 @@ def download_data(tickers, days, interval):
     for i, ticker in enumerate(tickers):
         data = yf_get_stock_data(ticker, days, interval)
         file_name = f"{ticker}_{interval}_{days}d.csv"
-        data.to_csv(fr"..\strategy_output\price_data\{file_name}")
+        data.to_csv(rf"..\strategy_output\price_data\{file_name}")
         print(f"({i}/{len(tickers)}) {file_name}")
 
 

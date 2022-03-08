@@ -94,13 +94,13 @@ def expectancy(win_rate, avg_win, avg_loss):
 
 
 def t_stat(signal_count, trading_edge):
-    sqn = (signal_count ** 0.5) * trading_edge / trading_edge.std(ddof=0)
+    sqn = (signal_count**0.5) * trading_edge / trading_edge.std(ddof=0)
     return sqn
 
 
 def t_stat_expanding(signal_count, expectancy):
     """"""
-    sqn = (signal_count ** 0.5) * expectancy / expectancy.expanding().std(ddof=0)
+    sqn = (signal_count**0.5) * expectancy / expectancy.expanding().std(ddof=0)
     return sqn
 
 
@@ -130,5 +130,9 @@ def pyramid(position, root=2):
 
 
 def kelly(win_rate, avg_win, avg_loss):
-    """kelly position sizer"""
+    """kelly position sizer, returns risk budget as percent"""
     return win_rate / np.abs(avg_loss) - (1 - win_rate) / avg_win
+
+
+def kelly_fractional():
+    pass
