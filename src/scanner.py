@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 import typing as t
 import src.utils.regime as regime
 from src.pd_accessors import PriceTable
+import src.pd_accessors as pda
+import src.money_management as smm
 
 
 class StockDataGetter:
@@ -21,10 +23,6 @@ class StockDataGetter:
         )
         PriceTable(data, symbol)
         return data[["open", "high", "low", "close"]]
-
-    # def yield_stocks_data(self, symbols: t.List[str]) -> pd.DataFrame:
-    #     for symbol in symbols:
-    #         yield self.get_stock_data(symbol)
 
     def backtest_strategy(
         self,
@@ -57,21 +55,22 @@ class StockDataGetter:
                 self.no_data.append(symbol)
                 symbol_data = None
 
-            yield symbol, symbol_data, strategy_data
+            yield symbol, symbol_data, bench_data, strategy_data
 
 
-def enhanced_price_data_plot(data):
+def enhanced_price_data_plot(data, ax=None):
     _open = "open"
     _high = "high"
     _low = "low"
     _close = "close"
     a = data[
-        [_close, "hi3", "lo3", "clg", "flr", "rg_ch", "hi2", "lo2"]
+        [_close, "hi3", "lo3", "clg", "flr", "rg_ch", "hi2", "lo2", 'stop_loss']
     ].plot(
         style=["grey", "ro", "go", "kv", "k^", "c:", "r.", "g."],
         figsize=(15, 5),
         grid=True,
         use_index=False,
+        ax=ax
     )
 
     data["rg"].plot(
@@ -82,7 +81,6 @@ def enhanced_price_data_plot(data):
         ax=a,
         use_index=False,
     )
-    plt.show()
 
 
 def rolling_plot(
@@ -296,7 +294,7 @@ def data_to_relative(data, bench_df):
     bm_close = 'bm_close'
     bench_df = bench_df.rename(columns={'close': bm_close})
     working_data = regime.relative(
-        df=data, bm_df=bench_df, bm_col=bm_close, rebase=False
+        df=data, bm_df=bench_df, bm_col=bm_close, rebase=True
     )
     working_data = working_data[["ropen", "rhigh", "rlow", "rclose"]]
     working_data = working_data.rename(
@@ -328,13 +326,45 @@ def download_data(tickers, days, interval):
 
 def run_scanner(scanner, stat_calculator):
     stat_overview = pd.DataFrame()
-    for symbol, symbol_data, strategy_data in scanner:
+    for symbol, symbol_data, bench_data, strategy_data in scanner:
         if symbol_data is None or strategy_data is None:
             continue
         stat_sheet_historical = stat_calculator(symbol_data, strategy_data.valid_entries)
         # TODO -2 because yf gives to the minute data despite before bar closes
         stat_sheet_final_scores = stat_sheet_historical.iloc[-2].copy()
         stat_sheet_final_scores['symbol'] = symbol
+        signal_table = pda.SignalTable(strategy_data.valid_entries)
+        price_table = PriceTable(symbol_data, '')
+
+        entries = strategy_data.valid_entries
+        entries['abs_entry'] = signal_table.entry_prices(price_table)
+        entries['abs_exit'] = signal_table.exit_prices(price_table)
+        entries['abs_return'] = signal_table.static_returns(price_table)
+        entries['partial_exit'] = signal_table.partial_exit_prices(price_table)
+
+        risk = signal_table.pyramid_all(-0.0075)
+        strategy_data.valid_entries['shares'] = signal_table.eqty_risk_shares(strategy_data.enhanced_price_data, 30000, risk)
+        entries['partial_profit'] = (entries.partial_exit - entries.abs_entry) * (entries.shares * (2 / 3))
+        entries['rem_profit'] = (entries.abs_exit - entries.abs_entry) * (entries.shares * (1 / 3))
+        entries['partial_total'] = entries.partial_profit + entries.rem_profit
+        entries['no_partial_total'] = (entries.abs_exit - entries.abs_entry) * entries.shares
+        entries['total'] = entries['partial_total']
+        entries.loc[pd.isna(entries.total), 'total'] = entries.loc[pd.isna(entries.total), 'no_partial_total']
+        entries['total'] = entries.total.cumsum()
+
+        fig, axes = plt.subplots(nrows=3, ncols=1)
+
+        strategy_data.enhanced_price_data['stop_loss'] = strategy_data.stop_loss_series
+        enhanced_price_data_plot(strategy_data.enhanced_price_data, ax=axes[0])
+
+        bench_data["close"] = bench_data["close"].div(bench_data["close"][0])
+        symbol_data['stop_loss'] = strategy_data.enhanced_price_data['stop_loss'] * bench_data.close
+        symbol_data[['close', 'stop_loss']].plot(use_index=False, ax=axes[1])
+        pd.DataFrame({
+            'abs_rel_delta': abs(symbol_data.close - strategy_data.enhanced_price_data.close),
+            '': abs(symbol_data.close - symbol_data.stop_loss)
+        }).plot(use_index=False, ax=axes[2])
+        plt.show()
         stat_overview = stat_overview.append(stat_sheet_final_scores)
 
     stat_overview = stat_overview.reset_index(drop=True)
@@ -378,6 +408,6 @@ if __name__ == "__main__":
             freq='15T',
         )
     )
-    stat_overview_ = stat_overview_.sort_values('risk_adjusted_returns', axis=1, ascending=False)
+    stat_overview_ = stat_overview_.sort_values('risk_adj_returns_roll', axis=1, ascending=False)
     stat_overview_.to_csv('stat_overview.csv')
     print('done')

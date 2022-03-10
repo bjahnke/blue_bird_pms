@@ -322,16 +322,16 @@ def get_regime_signal_candidates(
     rg_entries["dir"] = regime.rg
     rg_entries["fixed_stop"] = rg_entries.trail_stop
     rg_entries = rg_entries.sort_values(by="trail_stop")
+
     try:
         first_sig = rg_entries.iloc[0]
     except IndexError:
         return rg_entries
-    peaks_since_first_sig = entry_table.loc[
-        entry_table.trail_stop < first_sig.trail_stop
-    ]
-    prior_major_peaks = peaks_since_first_sig.loc[
-        (peaks_since_first_sig.lvl == highest_peak_lvl)
-        & (peaks_since_first_sig.type == first_sig.type)
+
+    prior_major_peaks = entry_table.loc[
+        (entry_table.trail_stop < first_sig.trail_stop)
+        & (entry_table.lvl == highest_peak_lvl)
+        & (entry_table.type == first_sig.type)
     ]
     try:
         rg_entries.fixed_stop.iat[0] = prior_major_peaks.trail_stop.iat[-1]
@@ -403,12 +403,14 @@ class TrailStop:
         return validate_entries(price, entry_candidates, self.dir)
 
 
-def validate_entries(price, entry_candidates, direction):
+def validate_entries(price: pd.DataFrame, entry_candidates: pd.DataFrame, direction: int):
     """entry price must be within trail stop/fixed stop"""
+    assert direction in [1, -1]
     stop_price_col = "high" if direction == -1 else "low"
     entry_prices = price.loc[entry_candidates.entry, "close"]
     trail_prices = price.loc[entry_candidates.trail_stop, stop_price_col]
     valid_entry_query = ((entry_prices.values - trail_prices.values) * direction) > 0
+    # valid_entries['entry_price'] = price.loc[]
     return entry_candidates.loc[valid_entry_query]
 
 
@@ -432,7 +434,7 @@ def draw_stop_line(
     offset_pct,
     r_multiplier,
     rg_end_date,
-) -> t.Tuple[pd.Series, pd.Timestamp, pd.Timestamp, pd.Series]:
+) -> t.Tuple[pd.Series, pd.Timestamp, pd.Timestamp, pd.Series, float]:
     """
     trail stop to entry price, then reset to fixed stop price after target price is reached
     :param rg_end_date:
@@ -459,14 +461,17 @@ def draw_stop_line(
 
     if partial_exit_date is not None:
         stop_line.loc[partial_exit_date:] = fixed_stop_price
+    else:
+        partial_exit_date = np.nan
 
     stop_loss_exit_signal = stop_calc.exit_signal(price, stop_line)
     exit_signal_date = stop_line.loc[stop_loss_exit_signal].first_valid_index()
+    # signal is active until signal end date is not the current date
     if exit_signal_date is None:
         exit_signal_date = price.index[-1]
     stop_line = stop_line.loc[:exit_signal_date]
 
-    return stop_line, exit_signal_date, partial_exit_date, stop_loss_exit_signal
+    return stop_line, exit_signal_date, partial_exit_date, stop_loss_exit_signal, fixed_stop_price
 
 
 def draw_french_stop(signals):
@@ -497,7 +502,7 @@ def process_signal_data(
             pos_price_col="low", neg_price_col="high", cum_extreme="cummin", dir=-1
         ),
     }
-    valid_entries = pd.DataFrame()
+    valid_entries = pd.DataFrame(columns=entry_candidates.columns.to_list())
     stop_lines = []
 
     for rg_idx, rg_info in regimes.iterrows():
@@ -529,6 +534,7 @@ def process_signal_data(
                 exit_signal_date,
                 partial_exit_date,
                 stop_loss_exit_signal,
+                fixed_stop_price,
             ) = draw_stop_line(
                 stop_calc=stop_calc,
                 price=price_data,
@@ -552,15 +558,15 @@ def process_signal_data(
             entry_signal_data = entry_signal.copy()
             entry_signal_data["exit_signal_date"] = exit_signal_date
             entry_signal_data["partial_exit_date"] = partial_exit_date
-            if valid_entries.empty:
-                valid_entries = pd.DataFrame([entry_signal_data])
-            else:
-                valid_entries = valid_entries.append(
-                    entry_signal_data, ignore_index=True
-                )
+            entry_signal_data["fixed_stop_price"] = fixed_stop_price
+            entry_signal_data["rg_id"] = rg_info.name
+
+            valid_entries = valid_entries.append(
+                entry_signal_data, ignore_index=True
+            )
 
             start = exit_signal_date
-            if partial_exit_date is not None:
+            if not pd.isna(partial_exit_date):
                 if exit_signal_date <= partial_exit_date:
                     # start = rg_price_data.iloc[rg_price_data.index.get_loc(exit_signal_date) + 1].index[0]
                     start = exit_signal_date
@@ -851,244 +857,6 @@ def calc_stats(
         pd.DataFrame.from_dict({key: value})
 
     return pd.DataFrame.from_dict(stat_sheet_dict)
-
-
-
-
-
-def yf_get_stock_data(symbol, days, interval: str) -> pd.DataFrame:
-    """get price data from yahoo finance"""
-    data = yf.ticker.Ticker(symbol).history(
-        start=(datetime.now() - timedelta(days=days)),
-        end=datetime.now(),
-        interval=interval,
-    )
-
-    data = data.rename(
-        columns={"Open": "open", "High": "high", "Low": "low", "Close": "close"}
-    )
-    return data[["open", "high", "low", "close"]]
-
-
-def get_cached_data(symbol, days, interval) -> pd.DataFrame:
-    """get price data from local storage"""
-    file_name = f"{symbol}_{interval}_{days}d.csv"
-    data = pd.read_csv(rf"..\strategy_output\price_data\{file_name}")
-    data = data.rename(
-        columns={"Open": "open", "High": "high", "Low": "low", "Close": "close"}
-    )
-
-    data_cols = data.columns.to_list()
-
-    if "Date" in data_cols:
-        date_col = "Date"
-    elif "Datetime" in data_cols:
-        date_col = "Datetime"
-    else:
-        raise
-
-    data[date_col] = pd.to_datetime(data[date_col])
-    data = data.set_index(data[date_col])
-
-    return data[["open", "high", "low", "close"]]
-
-
-def get_wikipedia_stocks(url):
-    """get stock data (names, sectors, etc) from wikipedia"""
-    wiki_df = pd.read_html(url)[0]
-    tickers_list = list(wiki_df["Symbol"])
-    return tickers_list[:], wiki_df
-
-
-def scan_all(
-    symbols,
-    get_data_method: t.Callable[[str], pd.DataFrame],
-    regime_data,
-    bench_df: pd.DataFrame = None,
-    distance_pct=0.05,
-    retrace_pct=0.05,
-    swing_window=63,
-    sw_lvl=3,
-    regime_threshold=0.5,
-    entry_lvls=None,
-    highest_peak_lvl=3,
-    trail_offset_pct=0.01,
-    r_multiplier=1.5,
-    freq="15T",
-):
-    if entry_lvls is None:
-        entry_lvls = [2]
-
-    """scan all data"""
-    for i, symbol in enumerate(symbols):
-        try:
-            data = get_data_method(symbol)
-        except KeyError:
-            # if data is messed up, usually cached data
-            continue
-
-        if data.empty:
-            print(f"{symbol}, no data")
-            continue
-
-        if bench_df is not None:
-            # TODO rebase only necessary for visual performance comparison?
-            working_data = regime.relative(
-                df=data, bm_df=bench_df, bm_col="spy_close", rebase=False
-            )
-            working_data = working_data[["ropen", "rhigh", "rlow", "rclose"]]
-            working_data = working_data.rename(
-                columns={
-                    "ropen": "open",
-                    "rhigh": "high",
-                    "rlow": "low",
-                    "rclose": "close",
-                }
-            )
-        else:
-            working_data = data.copy()
-
-        try:
-            # ticker_regime_score = regime_data.loc[regime_data['Symbol'] == symbol, 'score'].iloc[0]
-            # if ticker_regime_score > 0:
-            #     side_only = 1
-            # elif ticker_regime_score < 0:
-            #     side_only = -1
-            # else:
-            #     # skip if regime score is 0: trend is sideways?
-            #     continue
-            side_only = None
-
-            ndf, peak_t, rg_t, valid_t, stop_loss_t = fc_scale_strategy(
-                price_data=working_data,
-                side_only=side_only,
-                distance_pct=distance_pct,
-                retrace_pct=retrace_pct,
-                swing_window=swing_window,
-                sw_lvl=sw_lvl,
-                regime_threshold=regime_threshold,
-                entry_lvls=entry_lvls,
-                highest_peak_lvl=highest_peak_lvl,
-                trail_offset_pct=trail_offset_pct,
-                r_multiplier=r_multiplier,
-            )
-        except (regime.NotEnoughDataError, NoEntriesError):
-            continue
-
-        stat_sheet = calc_stats(
-            data,
-            valid_t,
-            min_periods=50,
-            window=200,
-            percentile=0.05,
-            limit=5,
-            freq=freq,
-        )
-        print(f"({i}/{len(symbols)}) {symbol}")
-        yield {
-            "symbol": symbol,
-            "ndf": ndf,
-            "peak_t": peak_t,
-            "rg_t": rg_t,
-            "valid_t": valid_t,
-            "stop_loss_t": stop_loss_t,
-            "stat_sheet": stat_sheet,
-        }
-
-
-def cached_main():
-    """use to run scanner on locally stored price data"""
-    days = 58
-    interval = "15m"
-    freq = "15T"
-    regime_data = pd.read_csv(r"..\strategy_output\scan\stock_info\sp500_regimes.csv")
-    bench_df = get_cached_data("SPY", days=days, interval=interval)
-    bench_df = bench_df.rename(columns={"close": "spy_close"})
-    tickers = regime_data["Symbol"].to_list()
-
-    stat_overview = pd.DataFrame()
-
-    def get_data_method(symb):
-        return get_cached_data(symb, days=days, interval=interval)
-
-    print("scanning...")
-    try:
-        for scan_data in scan_all(
-            tickers,
-            get_data_method,
-            regime_data,
-            bench_df=bench_df,
-            trail_offset_pct=0.01,
-            freq=freq,
-        ):
-            stat_sheet = scan_data["stat_sheet"].reset_index().copy()
-            stat_sheet_overview = stat_sheet.iloc[-2].copy()
-            stat_sheet_overview["symbol"] = scan_data["symbol"]
-            stat_overview = stat_overview.append(stat_sheet_overview)
-    except:
-        # re raise uncaught exceptions here so stat_overview can be observed
-        raise
-
-    stat_overview.to_csv(
-        rf"..\strategy_output\scan\overviews\sp500_{interval}_{days}.csv"
-    )
-
-    return stat_overview
-
-
-def main(write: bool):
-    """scans on recent data"""
-    days = 58
-    interval = "15m"
-    freq = "15T"
-    sp500_wiki = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-
-    tickers, _ = get_wikipedia_stocks(sp500_wiki)
-
-    def get_data_method(symb):
-        return yf_get_stock_data(symb, days=days, interval=interval)
-
-    # INPUTS END, Code start
-
-    stat_overview = pd.DataFrame()
-
-    bench_df = get_data_method("SPY")
-    bench_df = bench_df.rename(columns={"close": "spy_close"})
-
-    print("scanning...")
-    try:
-        for scan_data in scan_all(
-            tickers,
-            get_data_method,
-            None,
-            bench_df=bench_df,
-            trail_offset_pct=0.01,
-            freq=freq,
-        ):
-            stat_sheet = scan_data["stat_sheet"].reset_index().copy()
-            # TODO -2 because yf gives to the minute data despite before bar closes
-            stat_sheet_overview = stat_sheet.iloc[-2].copy()
-            stat_sheet_overview["symbol"] = scan_data["symbol"]
-            stat_overview = stat_overview.append(stat_sheet_overview)
-    except:
-        # re raise uncaught exceptions here so stat_overview can be observed
-        raise
-
-    if write is True:
-        stat_overview.to_csv(
-            rf"..\strategy_output\scan\overviews\sp500_{interval}_{days}.csv"
-        )
-
-    return stat_overview
-
-
-def download_data(tickers, days, interval):
-    """download ticker data to this project directory"""
-    for i, ticker in enumerate(tickers):
-        data = yf_get_stock_data(ticker, days, interval)
-        file_name = f"{ticker}_{interval}_{days}d.csv"
-        data.to_csv(rf"..\strategy_output\price_data\{file_name}")
-        print(f"({i}/{len(tickers)}) {file_name}")
 
 
 def price_data_to_relative_series(

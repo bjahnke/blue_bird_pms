@@ -4,6 +4,7 @@ from abc import ABCMeta, abstractmethod
 import typing as t
 from itertools import chain
 
+from src.money_management import eqty_risk_shares
 from src.utils import trading_stats
 
 
@@ -170,6 +171,7 @@ class SignalTable(PivotTable):
         "dir",
         "exit_signal_date",
         "partial_exit_date",
+        "fixed_stop_price"
     ]
 
     def __init__(self, data: pd.DataFrame, name="signals"):
@@ -181,32 +183,71 @@ class SignalTable(PivotTable):
         )
 
     @property
-    def entry(self):
+    def entry(self) -> 'pd.Series[pd.Timestamp]':
         return self.data.entry
 
     @property
-    def trail_stop(self):
+    def trail_stop(self) -> 'pd.Series[pd.Timestamp]':
         return self.data.trail_stop
 
     @property
-    def fixed_stop(self):
+    def fixed_stop(self) -> 'pd.Series[pd.Timestamp]':
         return self.data.fixed_stop
 
     @property
-    def dir(self):
+    def dir(self) -> 'pd.Series[int]':
         return self.data.dir
 
     @property
-    def exit_signal_date(self):
+    def exit_signal_date(self) -> 'pd.Series[pd.Timestamp]':
         return self.data.exit_signal_date
 
     @property
-    def partial_exit_date(self):
+    def partial_exit_date(self) -> 'pd.Series[pd.Timestamp]':
+        """Note: can also be None"""
         return self.data.partial_exit_date
 
-    def pyramid(self) -> pd.Series:
+    def pyramid_all(self, base_risk) -> pd.Series:
+        """get all risk amortized per regime id"""
+        risk = []
+        for rg_id in self.data.rg_id.unique():
+            signals_by_rg = self.data.loc[self.data.rg_id == rg_id]
+            if signals_by_rg.empty:
+                break
+            amortized_risk = SignalTable(signals_by_rg).pyramid(base_risk)
+            risk.append(amortized_risk)
+        risk = pd.concat(risk).reset_index(drop=True)
+        return risk
+
+    def pyramid(self, base_risk) -> pd.Series:
+        """Note: should only be used per regime, not on entire signal table"""
         row_count = pd.Series(data=self.counts) - 1
-        return trading_stats.pyramid(row_count, root=2)
+        return trading_stats.pyramid(row_count, root=2) * base_risk
+
+    def absolute_stop(self, benchmark_prices: PriceTable):
+        return self.data.fixed_stop_price.values * benchmark_prices.close.loc[self.fixed_stop]
+
+    def entry_prices(self, price_table: PriceTable):
+        return price_table.close.loc[self.entry].reset_index(drop=True)
+
+    def exit_prices(self, price_table: PriceTable):
+        return price_table.close.loc[self.exit_signal_date].reset_index(drop=True)
+
+    def partial_exit_prices(self, price_table: PriceTable):
+        return price_table.close.loc[self.partial_exit_date.dropna()].reset_index(drop=True)
+
+    def static_returns(self, price_table: PriceTable):
+        return (self.exit_prices(price_table) - self.entry_prices(price_table)) * self.dir
+
+    def eqty_risk_shares(self, price_table: PriceTable, eqty, risk, lot=None, fx=None):
+        return eqty_risk_shares(
+            px=self.entry_prices(price_table),
+            sl=self.data.fixed_stop_price,
+            eqty=eqty,
+            risk=risk,
+            lot=lot,
+            fx=fx
+        )
 
 
 class PositionTable(PivotTable):

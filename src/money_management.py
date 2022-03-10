@@ -103,7 +103,8 @@ def test_risk_app():
         equity_curve, tolerance, min_risk, max_risk, span, shape
     )
     # convex_risk = -convex_risk * peak_equity
+    print('d')
 
 
 if __name__ == "__main__":
-    print("d")
+    test_risk_app()
