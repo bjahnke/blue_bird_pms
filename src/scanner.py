@@ -64,7 +64,7 @@ def enhanced_price_data_plot(data, ax=None):
     _low = "low"
     _close = "close"
     a = data[
-        [_close, "hi3", "lo3", "clg", "flr", "rg_ch", "hi2", "lo2", 'stop_loss']
+        [_close, "hi3", "lo3", "clg", "flr", "rg_ch", "hi2", "lo2", 'stop_loss', 'french_stop']
     ].plot(
         style=["grey", "ro", "go", "kv", "k^", "c:", "r.", "g."],
         figsize=(15, 5),
@@ -355,6 +355,7 @@ def run_scanner(scanner, stat_calculator):
         fig, axes = plt.subplots(nrows=3, ncols=1)
 
         strategy_data.enhanced_price_data['stop_loss'] = strategy_data.stop_loss_series
+        strategy_data.enhanced_price_data['french_stop'] = strategy_data.french_stop.stop_price
         enhanced_price_data_plot(strategy_data.enhanced_price_data, ax=axes[0])
 
         bench_data["close"] = bench_data["close"].div(bench_data["close"][0])

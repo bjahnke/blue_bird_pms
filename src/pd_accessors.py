@@ -1,3 +1,4 @@
+from __future__ import annotations
 import pandas as pd
 import numpy as np
 from abc import ABCMeta, abstractmethod
@@ -109,8 +110,19 @@ class Table(metaclass=ABCMeta):
         return self._name
 
     @classmethod
-    def init_empty_df(cls) -> pd.DataFrame:
-        return pd.DataFrame(columns=cls.mandatory_cols)
+    def init_empty_df(cls, index=None) -> pd.DataFrame:
+        df_kwargs = {'columns': cls.mandatory_cols}
+        if index is not None:
+            df_kwargs['index'] = index
+        return pd.DataFrame(**df_kwargs)
+
+    @classmethod
+    def concat(cls, *tables: Table) -> pd.DataFrame:
+        datas = []
+        for table in tables:
+            assert table.__class__ == cls
+            datas.append(table.data)
+        return pd.condat(datas)
 
 
 class PriceTable(Table):
@@ -265,6 +277,31 @@ class PositionTable(PivotTable):
             end_date_col="end",
         )
 
+class FrenchStop(Table):
+    mandatory_cols = ['rg_id', 'stop_price']
+
+    def __init__(self, data: pd.DataFrame, name=''):
+        super().__init__(data, name)
+
+    def update(
+        self,
+        pt: pd.DataFrame,
+        st: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """
+        set stop loss for prior active entries to cost of previous entry
+        """
+        data_copy = self.data.copy()
+        if st.empty:
+            return data_copy
+
+        # use the last idx up to -2 depending on size of signal table
+        signal = st.iloc[-min(len(st), 2)]
+        new_french_stop = pt.close.loc[signal.entry]
+        data_copy.loc[st.iloc[-1].entry:, 'stop_price'] = new_french_stop
+        data_copy.loc[st.iloc[-1].entry:, 'rg_id'] = signal.rg_id
+
+        return data_copy
 
 # def date_ranges(start: pd.Series, end: pd.Series, freq: str):
 #     """concatenate date ranges for querying"""
