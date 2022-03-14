@@ -226,13 +226,11 @@ def get_follow_peaks(
         follow_peak = prior_peaks.loc[current_peak_date:].iloc[1:].dropna().iloc[:1]
         if len(follow_peak) > 0:
             follow_peaks.loc[follow_peak.index[0]] = follow_peak.iloc[0]
-            pivot_table = pivot_table.append(
-                {
-                    current_peak.name: current_peak_date,
-                    prior_peaks.name: follow_peak.index[0],
-                },
-                ignore_index=True,
-            )
+            df = pd.DataFrame({
+                    prior_peaks.name: [follow_peak.index[0]],
+                    current_peak.name: [current_peak_date],
+            })
+            pivot_table = pd.concat([pivot_table, df], axis=0, ignore_index=True)
     return follow_peaks, pivot_table
 
 
@@ -496,9 +494,7 @@ def process_signal_data(
             entry_signal_data["fixed_stop_price"] = fixed_stop_price
             entry_signal_data["rg_id"] = rg_info.name
 
-            valid_entries = valid_entries.append(
-                entry_signal_data, ignore_index=True
-            )
+            valid_entries = pd.concat([valid_entries, entry_signal_data.to_frame().transpose()], ignore_index=True)
 
             french_stop = pda.FrenchStop(french_stop).update(
                 price_data,

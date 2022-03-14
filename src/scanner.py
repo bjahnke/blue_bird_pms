@@ -43,7 +43,7 @@ class StockDataGetter:
     ) -> t.Union[t.Tuple[pd.DataFrame, sfcr.FcStrategyTables], t.Tuple[None, None]]:
         bench_data = self.get_stock_data(bench_symbol)
         for i, symbol in enumerate(symbols):
-            print(f"({i}/{len(symbols)}) {symbol}", end='\r')
+            print(f"({i}/{len(symbols)}) {symbol}")  # , end='\r')
             symbol_data = self.get_stock_data(symbol)
             strategy_data = None
             if not symbol_data.empty:
@@ -326,6 +326,7 @@ def download_data(tickers, days, interval):
 
 def run_scanner(scanner, stat_calculator):
     stat_overview = pd.DataFrame()
+    entry_dict = {}
     for symbol, symbol_data, bench_data, strategy_data in scanner:
         if symbol_data is None or strategy_data is None:
             continue
@@ -341,6 +342,7 @@ def run_scanner(scanner, stat_calculator):
         entries['abs_exit'] = signal_table.exit_prices(price_table)
         entries['abs_return'] = signal_table.static_returns(price_table)
         entries['partial_exit'] = signal_table.partial_exit_prices(price_table)
+        entry_dict[symbol] = entries
 
         risk = signal_table.pyramid_all(-0.0075)
         strategy_data.valid_entries['shares'] = signal_table.eqty_risk_shares(strategy_data.enhanced_price_data, 30000, risk)
@@ -352,21 +354,22 @@ def run_scanner(scanner, stat_calculator):
         entries.loc[pd.isna(entries.total), 'total'] = entries.loc[pd.isna(entries.total), 'no_partial_total']
         entries['total'] = entries.total.cumsum()
 
-        fig, axes = plt.subplots(nrows=3, ncols=1)
+        # fig, axes = plt.subplots(nrows=2, ncols=1)
 
-        strategy_data.enhanced_price_data['stop_loss'] = strategy_data.stop_loss_series
-        strategy_data.enhanced_price_data['french_stop'] = strategy_data.french_stop.stop_price
-        enhanced_price_data_plot(strategy_data.enhanced_price_data, ax=axes[0])
+        # strategy_data.enhanced_price_data['stop_loss'] = strategy_data.stop_loss_series
+        # strategy_data.enhanced_price_data['french_stop'] = strategy_data.french_stop.stop_price
+        # enhanced_price_data_plot(strategy_data.enhanced_price_data, ax=axes[0])
 
-        bench_data["close"] = bench_data["close"].div(bench_data["close"][0])
-        symbol_data['stop_loss'] = strategy_data.enhanced_price_data['stop_loss'] * bench_data.close
-        symbol_data[['close', 'stop_loss']].plot(use_index=False, ax=axes[1])
-        pd.DataFrame({
-            'abs_rel_delta': abs(symbol_data.close - strategy_data.enhanced_price_data.close),
-            '': abs(symbol_data.close - symbol_data.stop_loss)
-        }).plot(use_index=False, ax=axes[2])
-        plt.show()
-        stat_overview = stat_overview.append(stat_sheet_final_scores)
+        # bench_data["close"] = bench_data["close"].div(bench_data["close"][0])
+        # symbol_data['stop_loss'] = strategy_data.enhanced_price_data['stop_loss'] * bench_data.close
+        # symbol_data[['close', 'stop_loss']].plot(use_index=False, ax=axes[1])
+        # pd.DataFrame({
+        #     'abs_rel_delta': abs(symbol_data.close - strategy_data.enhanced_price_data.close),
+        #     '': abs(symbol_data.close - symbol_data.stop_loss)
+        # }).plot(use_index=False, ax=axes[2])
+        # plt.show()
+        stat_sheet_final_scores['weight_profit'] = entries.iloc[-1].total
+        stat_overview = pd.concat([stat_overview, stat_sheet_final_scores.to_frame().transpose()], ignore_index=True)
 
     stat_overview = stat_overview.reset_index(drop=True)
     return stat_overview
@@ -409,6 +412,6 @@ if __name__ == "__main__":
             freq='15T',
         )
     )
-    stat_overview_ = stat_overview_.sort_values('risk_adj_returns_roll', axis=1, ascending=False)
+    # stat_overview_ = stat_overview_.sort_values('risk_adj_returns_roll', axis=1, ascending=False)
     stat_overview_.to_csv('stat_overview.csv')
     print('done')
