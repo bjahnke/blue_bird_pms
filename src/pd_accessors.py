@@ -277,6 +277,7 @@ class PositionTable(PivotTable):
             end_date_col="end",
         )
 
+
 class FrenchStop(Table):
     mandatory_cols = ['rg_id', 'stop_price']
 
@@ -287,6 +288,7 @@ class FrenchStop(Table):
         self,
         pt: pd.DataFrame,
         st: pd.DataFrame,
+        rg_end: pd.Timestamp,
     ) -> pd.DataFrame:
         """
         set stop loss for prior active entries to cost of previous entry
@@ -298,8 +300,8 @@ class FrenchStop(Table):
         # use the last idx up to -2 depending on size of signal table
         signal = st.iloc[-min(len(st), 2)]
         new_french_stop = pt.close.loc[signal.entry]
-        data_copy.loc[st.iloc[-1].entry:, 'stop_price'] = new_french_stop
-        data_copy.loc[st.iloc[-1].entry:, 'rg_id'] = signal.rg_id
+        data_copy.loc[st.iloc[-1].entry: rg_end, 'stop_price'] = new_french_stop
+        data_copy.loc[st.iloc[-1].entry: rg_end, 'rg_id'] = signal.rg_id
 
         return data_copy
 

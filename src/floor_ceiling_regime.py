@@ -404,7 +404,7 @@ def draw_stop_line(
     exit_signal_date = stop_line.loc[stop_loss_exit_signal].first_valid_index()
     # signal is active until signal end date is not the current date
     if exit_signal_date is None:
-        exit_signal_date = price.index[-1]
+        exit_signal_date = rg_end_date
     stop_line = stop_line.loc[:exit_signal_date]
 
     return stop_line, exit_signal_date, partial_exit_date, stop_loss_exit_signal, fixed_stop_price
@@ -498,7 +498,8 @@ def process_signal_data(
 
             french_stop = pda.FrenchStop(french_stop).update(
                 price_data,
-                valid_entries
+                valid_entries,
+                rg_end=end
             )
             french_exit_signal = stop_calc.exit_signal(rg_price_data, french_stop.stop_price)
             french_exit = french_stop.loc[french_exit_signal].first_valid_index()
@@ -670,9 +671,10 @@ def calc_stats(
     percentile: float,
     limit,
     freq: str,
-) -> pd.DataFrame:
+) -> t.Union[None, pd.DataFrame]:
     """
     get full stats of strategy, rolling and expanding
+    :param relative_side_only:
     :param freq:
     :param signals:
     :param price_data:
@@ -684,7 +686,6 @@ def calc_stats(
     """
 
     # TODO include regime returns
-
     signal_table = pda.SignalTable(signals.copy())
     signal_table.data["trade_count"] = signal_table.counts
     signals_un_pivot = signal_table.unpivot(freq=freq, valid_dates=price_data.index)
@@ -795,7 +796,10 @@ def calc_stats(
     for key, value in stat_sheet_dict.items():
         pd.DataFrame.from_dict({key: value})
 
-    return pd.DataFrame.from_dict(stat_sheet_dict)
+    historical_stat_sheet = pd.DataFrame.from_dict(stat_sheet_dict)
+    historical_stat_sheet = historical_stat_sheet.loc[historical_stat_sheet.trades.notna()]
+
+    return historical_stat_sheet
 
 
 def price_data_to_relative_series(

@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 import yfinance as yf
@@ -267,7 +268,7 @@ def yf_get_stock_data(symbol, days, interval: str) -> pd.DataFrame:
         end=datetime.now(),
         interval=interval,
     )
-    return data
+    return data.iloc[:-2]
 
 
 def get_cached_data(symbol, days, interval) -> pd.DataFrame:
@@ -324,28 +325,40 @@ def download_data(tickers, days, interval):
         print(f"({i}/{len(tickers)}) {file_name}")
 
 
-def run_scanner(scanner, stat_calculator):
+def run_scanner(scanner, stat_calculator, relative_side_only=True):
     stat_overview = pd.DataFrame()
-    entry_dict = {}
+    entry_data = {}
     for symbol, symbol_data, bench_data, strategy_data in scanner:
         if symbol_data is None or strategy_data is None:
             continue
-        stat_sheet_historical = stat_calculator(symbol_data, strategy_data.valid_entries)
-        # TODO -2 because yf gives to the minute data despite before bar closes
-        stat_sheet_final_scores = stat_sheet_historical.iloc[-2].copy()
+
+        signals = strategy_data.valid_entries.copy()
+
+        # only process long for outperformers, short for underperformers
+        if relative_side_only:
+            symbol_data['over_under'] = np.where((symbol_data.close-strategy_data.enhanced_price_data.close) > 0, 1, -1)
+            signals_filter = symbol_data.over_under.loc[signals.entry].reset_index(drop=True) == signals.dir
+            signals = signals.loc[signals_filter].reset_index(drop=True)
+            if signals.empty:
+                continue
+
+        stat_sheet_historical = stat_calculator(symbol_data, signals)
+        if stat_sheet_historical is None:
+            continue
+        # TODO fixed? TODO -2 because yf gives to the minute data despite before bar closes
+        stat_sheet_final_scores = stat_sheet_historical.iloc[-1].copy()
         stat_sheet_final_scores['symbol'] = symbol
-        signal_table = pda.SignalTable(strategy_data.valid_entries)
+        signal_table = pda.SignalTable(signals)
         price_table = PriceTable(symbol_data, '')
 
-        entries = strategy_data.valid_entries
+        entries = signals
         entries['abs_entry'] = signal_table.entry_prices(price_table)
         entries['abs_exit'] = signal_table.exit_prices(price_table)
         entries['abs_return'] = signal_table.static_returns(price_table)
         entries['partial_exit'] = signal_table.partial_exit_prices(price_table)
-        entry_dict[symbol] = entries
 
         risk = signal_table.pyramid_all(-0.0075)
-        strategy_data.valid_entries['shares'] = signal_table.eqty_risk_shares(strategy_data.enhanced_price_data, 30000, risk)
+        signals['shares'] = signal_table.eqty_risk_shares(strategy_data.enhanced_price_data, 30000, risk)
         entries['partial_profit'] = (entries.partial_exit - entries.abs_entry) * (entries.shares * (2 / 3))
         entries['rem_profit'] = (entries.abs_exit - entries.abs_entry) * (entries.shares * (1 / 3))
         entries['partial_total'] = entries.partial_profit + entries.rem_profit
@@ -354,7 +367,9 @@ def run_scanner(scanner, stat_calculator):
         entries.loc[pd.isna(entries.total), 'total'] = entries.loc[pd.isna(entries.total), 'no_partial_total']
         entries['total'] = entries.total.cumsum()
 
-        # fig, axes = plt.subplots(nrows=2, ncols=1)
+        entry_data[symbol] = entries
+
+        # fig, axes = plt.subplots(nrows=3, ncols=1)
 
         # strategy_data.enhanced_price_data['stop_loss'] = strategy_data.stop_loss_series
         # strategy_data.enhanced_price_data['french_stop'] = strategy_data.french_stop.stop_price
@@ -368,7 +383,7 @@ def run_scanner(scanner, stat_calculator):
         #     '': abs(symbol_data.close - symbol_data.stop_loss)
         # }).plot(use_index=False, ax=axes[2])
         # plt.show()
-        stat_sheet_final_scores['weight_profit'] = entries.iloc[-1].total
+        stat_sheet_final_scores['weight_total'] = entries.total.iloc[-1]
         stat_overview = pd.concat([stat_overview, stat_sheet_final_scores.to_frame().transpose()], ignore_index=True)
 
     stat_overview = stat_overview.reset_index(drop=True)
@@ -410,7 +425,8 @@ if __name__ == "__main__":
             percentile=0.05,
             limit=5,
             freq='15T',
-        )
+        ),
+        relative_side_only=True
     )
     # stat_overview_ = stat_overview_.sort_values('risk_adj_returns_roll', axis=1, ascending=False)
     stat_overview_.to_csv('stat_overview.csv')

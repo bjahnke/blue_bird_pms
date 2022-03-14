@@ -87,6 +87,13 @@ def eqty_risk_shares(px, sl, eqty, risk, lot=None, fx=None):
     else:
         shares = round(budget // (r * lot) * lot, 0)
 
+    # cap share to less than equity x 2 (includes leverage)
+    nominal_limit = eqty * 2
+    nominal_value = abs(shares * px)
+    exceed_limit = shares.loc[nominal_value > nominal_limit]
+    if not exceed_limit.empty:
+        shares.loc[exceed_limit.index] = (nominal_limit // nominal_value.loc[exceed_limit.index]) * exceed_limit
+
     return shares
 
 
@@ -168,6 +175,7 @@ def test_eqty_risk():
 
 if __name__ == '__main__':
     test_eqty_risk()
+
 
 def test_risk_app():
     equity_curve = 25000
