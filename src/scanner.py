@@ -358,7 +358,20 @@ def run_scanner(scanner, stat_calculator, relative_side_only=True):
         entries['partial_exit'] = signal_table.partial_exit_prices(price_table)
 
         risk = signal_table.pyramid_all(-0.0075)
-        signals['shares'] = signal_table.eqty_risk_shares(strategy_data.enhanced_price_data, 30000, risk)
+
+        # signals['win_roll'] = stat_sheet_historical.win_roll.loc[signals.entry].values
+        # signals['avg_win_roll'] = stat_sheet_historical.avg_win_roll.loc[signals.entry].values
+        # signals['avg_loss_roll'] = stat_sheet_historical.avg_loss_roll.loc[signals.entry].values
+        signals['risk'] = risk
+
+        # win_rate_query = (signals.win_roll > .5)
+        # signals.loc[win_rate_query, 'risk'] = smm.other_kelly(
+        #     win_rate=signals['win_roll'].loc[win_rate_query],
+        #     avg_win=signals['avg_win_roll'].loc[win_rate_query],
+        #     avg_loss=signals['avg_win_roll'].loc[win_rate_query],
+        # )
+        # signals['risk'] = signals['risk'] * .5
+        signals['shares'] = signal_table.eqty_risk_shares(strategy_data.enhanced_price_data, 30000, signals['risk'])
         entries['partial_profit'] = (entries.partial_exit - entries.abs_entry) * (entries.shares * (2 / 3))
         entries['rem_profit'] = (entries.abs_exit - entries.abs_entry) * (entries.shares * (1 / 3))
         entries['partial_total'] = entries.partial_profit + entries.rem_profit
@@ -394,7 +407,7 @@ if __name__ == "__main__":
     sp500_wiki = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
     ticks_, _ = get_wikipedia_stocks(sp500_wiki)
     scanner_ = StockDataGetter(
-        data_getter_method=lambda s: yf_get_stock_data(s, days=58, interval="15m"),
+        data_getter_method=lambda s: yf_get_stock_data(s, days=59, interval="15m"),
     ).yield_strategy_data(
         bench_symbol="SPY",
         symbols=ticks_,
@@ -425,9 +438,11 @@ if __name__ == "__main__":
             percentile=0.05,
             limit=5,
             freq='15T',
+            # freq='1D',
+            # freq='5T',
         ),
         relative_side_only=True
     )
     # stat_overview_ = stat_overview_.sort_values('risk_adj_returns_roll', axis=1, ascending=False)
-    stat_overview_.to_csv('stat_overview.csv')
+    stat_overview_.to_csv('stat_overview_1d.csv')
     print('done')

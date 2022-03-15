@@ -502,16 +502,19 @@ def process_signal_data(
                 rg_end=end
             )
             french_exit_signal = stop_calc.exit_signal(rg_price_data, french_stop.stop_price)
-            french_exit = french_stop.loc[french_exit_signal].first_valid_index()
+            french_exit_date = french_stop.loc[french_exit_signal].first_valid_index()
 
             # set exits for still open reduced-risk positions
 
-            if french_exit is not None:
+            if french_exit_date is not None:
                 update_stop_query = (
                     (pd.notna(valid_entries.partial_exit_date)) &
-                    (french_exit < valid_entries.exit_signal_date)
+                    (french_exit_date < valid_entries.exit_signal_date)
                 )
-                valid_entries.iloc[:-2].loc[update_stop_query, 'exit_signal_date'] = french_exit
+                update_stop_query.iloc[-1] = False
+                # valid_entries.iloc[:-2].loc[update_stop_query, 'exit_signal_date'] = french_exit_date
+                # valid_entries.iloc[:-2, valid_entries.columns.get_loc('exit_signal_date')] = french_exit_date
+                valid_entries.loc[update_stop_query, 'exit_signal_date'] = french_exit_date
 
             start = exit_signal_date
             if not pd.isna(partial_exit_date):
@@ -768,8 +771,6 @@ def calc_stats(
         # 'mt': mt,
         "perf": cumul_returns_pct,
         "excess": cumul_excess,
-        # 'score': round(score_expanding[-1], 1),  # TODO remove (risk_adj_returns used for score)
-        # 'score_roll': round(score_roll[-1], 1),  # TODO remove (risk_adj_returns used for score)
         "trades": trade_count,
         "win": win_rate,
         "win_roll": win_rate_roll,
@@ -793,11 +794,9 @@ def calc_stats(
         "risk_adjusted_returns": score_expanding,
         "risk_adj_returns_roll": score_roll,
     }
-    for key, value in stat_sheet_dict.items():
-        pd.DataFrame.from_dict({key: value})
 
     historical_stat_sheet = pd.DataFrame.from_dict(stat_sheet_dict)
-    historical_stat_sheet = historical_stat_sheet.loc[historical_stat_sheet.trades.notna()]
+    historical_stat_sheet = historical_stat_sheet.ffill()
 
     return historical_stat_sheet
 

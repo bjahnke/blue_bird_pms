@@ -71,6 +71,10 @@ def kelly(win_rate, avg_win, avg_loss):
     return win_rate / np.abs(avg_loss) - (1 - win_rate) / avg_win
 
 
+def other_kelly(win_rate, avg_win, avg_loss):
+    return win_rate - (1 - win_rate) / (avg_win/abs(avg_loss))
+
+
 def kelly_fractional():
     pass
 
@@ -162,7 +166,6 @@ def test_eqty_risk():
     # sl = 2222
     px = 2222
     sl = 2000
-
 
     eqty = 100000
     risk = -0.005

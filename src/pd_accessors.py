@@ -261,6 +261,21 @@ class SignalTable(PivotTable):
             fx=fx
         )
 
+    def get_open_shares(self, price_data):
+        """
+        TODO
+            - add partial_exit_pct to signal df
+            - for each row, get current_open_pct:
+                - current_open_pct = 0 if exit_date < price_data.iloc[-1].index
+                - else: current_open_pct = partial_exit_pct if partial_exit_date != nan
+                - else: current_open_pct = 1.0
+            - current_shares = current_open_pct * shares
+            - return current_shares.cumsum()
+        :param price_data:
+        :return:
+        """
+
+
 
 class PositionTable(PivotTable):
     """
