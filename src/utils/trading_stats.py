@@ -98,19 +98,20 @@ def t_stat(signal_count, trading_edge):
     return sqn
 
 
-def t_stat_expanding(signal_count, expectancy):
+def t_stat_expanding(signal_count, edge):
     """"""
-    sqn = (signal_count**0.5) * expectancy / expectancy.expanding().std(ddof=0)
+    sqn = (signal_count**0.5) * edge / edge.expanding().std(ddof=0)
     return sqn
 
 
 def robustness_score(grit, csr, sqn):
     # TODO should it start at 1?
+    exclude_zeros = (sqn != 0) & (csr != 0) & (grit != 0)
     try:
         start_date = max(
-            grit[pd.notnull(grit)].index[0],
-            csr[pd.notnull(csr)].index[0],
-            sqn[pd.notnull(sqn)].index[0],
+            grit[pd.notnull(grit) & exclude_zeros].index[0],
+            csr[pd.notnull(csr) & exclude_zeros].index[0],
+            sqn[pd.notnull(sqn) & exclude_zeros].index[0],
         )
     except IndexError:
         score = pd.Series(data=np.NaN, index=grit.index)

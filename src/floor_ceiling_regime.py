@@ -556,7 +556,6 @@ def fc_scale_strategy(
     r_multiplier=1.5,
     entry_lvls: t.List[int] = None,
     highest_peak_lvl: int = 3,
-    side_only: t.Optional[int] = None,
 ) -> FcStrategyTables:
     if entry_lvls is None:
         entry_lvls = [2]
@@ -576,7 +575,6 @@ def fc_scale_strategy(
         sw_lvl=sw_lvl,
         standard_dev=standard_dev,
         regime_threshold=regime_threshold,
-        side_only=side_only,
     )
 
     valid_entries, stop_loss_series, french_stop = init_signal_stop_loss_tables(
@@ -621,7 +619,6 @@ def init_regime_table(
     sw_lvl,
     standard_dev,
     regime_threshold,
-    side_only=None,
 ):
     """initialization of regime table bundled together"""
     shi = f"hi{sw_lvl}"
@@ -638,9 +635,6 @@ def init_regime_table(
         stdev=standard_dev,
         threshold=regime_threshold,
     )
-
-    if side_only is not None:
-        data_with_regimes = data_with_regimes.loc[data_with_regimes.rg == side_only]
 
     return regime_ranges(data_with_regimes, "rg"), data_with_regimes
 
@@ -695,12 +689,15 @@ def calc_stats(
     signals_un_pivot = signals_un_pivot.loc[
         ~signals_un_pivot.index.duplicated(keep="last")
     ]
+    signals_un_pivot = signals_un_pivot[['dir', 'trade_count']]
+    signals_un_pivot = expand_index(signals_un_pivot, price_data.index)
+    signals_un_pivot.dir = signals_un_pivot.dir.fillna(0)
 
     passive_returns_1d = ts.simple_log_returns(price_data.close)
-    signals_un_pivot["returns_1d"] = passive_returns_1d
+    signals_un_pivot["strategy_returns_1d"] = passive_returns_1d * signals_un_pivot.dir
     # don't use entry date to calculate returns
-    signals_un_pivot.loc[signal_table.entry, "returns_1d"] = 0
-    strategy_returns_1d = signals_un_pivot["returns_1d"] * signals_un_pivot.dir
+    signals_un_pivot.loc[signal_table.entry, "strategy_returns_1d"] = 0
+    strategy_returns_1d = signals_un_pivot.strategy_returns_1d.copy()
 
     # Performance
     cumul_passive = ts.cumulative_returns_pct(passive_returns_1d, min_periods)
@@ -725,13 +722,13 @@ def calc_stats(
 
     # Cumulative t-stat
     win_count = (
-        strategy_returns_1d[strategy_returns_1d > 0]
+        strategy_returns_1d.loc[strategy_returns_1d > 0]
         .expanding()
         .count()
         .fillna(method="ffill")
     )
     total_count = (
-        strategy_returns_1d[strategy_returns_1d != 0]
+        strategy_returns_1d.loc[strategy_returns_1d != 0]
         .expanding()
         .count()
         .fillna(method="ffill")
@@ -739,9 +736,11 @@ def calc_stats(
 
     csr_expanding = ts.common_sense_ratio(pr_expanding, tr_expanding)
     csr_roll = ts.common_sense_ratio(pr_roll, tr_roll)
+    csr_roll = expand_index(csr_roll, price_data.index).ffill()
 
     # Trade Count
     trade_count = signals_un_pivot["trade_count"]
+    trade_count = expand_index(trade_count, price_data.index).ffill().fillna(0)
     signal_roll = trade_count.diff(window)
 
     win_rate = (win_count / total_count).fillna(method="ffill")
@@ -759,7 +758,7 @@ def calc_stats(
     edge_roll = ts.expectancy(
         win_rate=win_rate_roll, avg_win=avg_win_roll, avg_loss=avg_loss_roll
     )
-    sqn_roll = ts.t_stat_expanding(signal_count=signal_roll, expectancy=edge_roll)
+    sqn_roll = ts.t_stat(signal_count=signal_roll, trading_edge=edge_roll)
 
     score_expanding = ts.robustness_score(grit_expanding, csr_expanding, sqn_expanding)
     score_roll = ts.robustness_score(grit_roll, csr_roll, sqn_roll)
@@ -796,9 +795,18 @@ def calc_stats(
     }
 
     historical_stat_sheet = pd.DataFrame.from_dict(stat_sheet_dict)
-    historical_stat_sheet = historical_stat_sheet.ffill()
+    # historical_stat_sheet = historical_stat_sheet.ffill()
 
     return historical_stat_sheet
+
+
+def expand_index(gap_data, full_index):
+    try:
+        expanded_idx = gap_data.__class__(index=full_index, columns=gap_data.columns)
+    except AttributeError:
+        expanded_idx = gap_data.__class__(index=full_index)
+    expanded_idx.loc[gap_data.index] = gap_data
+    return expanded_idx
 
 
 def price_data_to_relative_series(

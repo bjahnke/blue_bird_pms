@@ -42,9 +42,9 @@ class StockDataGetter:
         strategy: t.Callable[[pd.DataFrame, pd.DataFrame], t.Any],
         expected_exceptions: t.Tuple
     ) -> t.Union[t.Tuple[pd.DataFrame, sfcr.FcStrategyTables], t.Tuple[None, None]]:
-        bench_data = self.get_stock_data(bench_symbol)
         for i, symbol in enumerate(symbols):
             print(f"({i}/{len(symbols)}) {symbol}")  # , end='\r')
+            bench_data = self.get_stock_data(bench_symbol)
             symbol_data = self.get_stock_data(symbol)
             strategy_data = None
             if not symbol_data.empty:
@@ -268,7 +268,12 @@ def yf_get_stock_data(symbol, days, interval: str) -> pd.DataFrame:
         end=datetime.now(),
         interval=interval,
     )
-    return data.iloc[:-2]
+    data = data.rename(
+        columns={"Open": "open", "High": "high", "Low": "low", "Close": "close"}
+    )
+    PriceTable(data, symbol)
+    data = data[["open", "high", "low", "close"]]
+    return data
 
 
 def get_cached_data(symbol, days, interval) -> pd.DataFrame:
@@ -316,13 +321,19 @@ def get_wikipedia_stocks(url):
     return tickers_list[:], wiki_df
 
 
-def download_data(tickers, days, interval):
-    """download ticker data to this project directory"""
-    for i, ticker in enumerate(tickers):
-        data = yf_get_stock_data(ticker, days, interval)
-        file_name = f"{ticker}_{interval}_{days}d.csv"
-        data.to_csv(rf"..\strategy_output\price_data\{file_name}")
-        print(f"({i}/{len(tickers)}) {file_name}")
+def yf_download_data(tickers, days, interval) -> pd.DataFrame:
+    """download stock data from yf and concat to big price history file"""
+    data = yf.download(
+        tickers,
+        start=(datetime.now() - timedelta(days=days)),
+        end=datetime.now(),
+        interval=interval
+    )
+
+    data = data.rename(
+        columns={"Open": "open", "High": "high", "Low": "low", "Close": "close"}
+    )
+    return data[["open", "high", "low", "close"]]
 
 
 def run_scanner(scanner, stat_calculator, relative_side_only=True):
@@ -336,7 +347,7 @@ def run_scanner(scanner, stat_calculator, relative_side_only=True):
 
         # only process long for outperformers, short for underperformers
         if relative_side_only:
-            symbol_data['over_under'] = np.where((symbol_data.close-strategy_data.enhanced_price_data.close) > 0, 1, -1)
+            symbol_data['over_under'] = np.where((symbol_data.close-strategy_data.enhanced_price_data.close) > 0, -1, 1)
             signals_filter = symbol_data.over_under.loc[signals.entry].reset_index(drop=True) == signals.dir
             signals = signals.loc[signals_filter].reset_index(drop=True)
             if signals.empty:
@@ -403,14 +414,29 @@ def run_scanner(scanner, stat_calculator, relative_side_only=True):
     return stat_overview
 
 
+def re_download_data(ticks, days, interval_str):
+    _downloaded_data = yf_download_data(ticks, days, interval_str)
+    _downloaded_data.to_csv(
+        fr'C:\Users\bjahnke\OneDrive - bjahnke\OneDrive\algo_data\history\history_{days}d_{interval_str}.csv'
+    )
+    yf_get_stock_data('SPY', days, interval_str).to_csv(
+        fr'C:\Users\bjahnke\OneDrive - bjahnke\OneDrive\algo_data\history\spy_{days}d_{interval_str}.csv'
+    )
+
+
 if __name__ == "__main__":
     sp500_wiki = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
     ticks_, _ = get_wikipedia_stocks(sp500_wiki)
+    _days = 59
+    _interval = 15
+    _interval_str = f'{_interval}m'
+
     scanner_ = StockDataGetter(
-        data_getter_method=lambda s: yf_get_stock_data(s, days=59, interval="15m"),
+        data_getter_method=lambda s: yf_get_stock_data(s, days=59, interval=_interval_str),
     ).yield_strategy_data(
         bench_symbol="SPY",
         symbols=ticks_,
+        # symbols=['ABBV'],
         strategy=lambda pdf_, bdf_: (
             sfcr.fc_scale_strategy(
                 price_data=data_to_relative(pdf_, bdf_),
@@ -423,7 +449,6 @@ if __name__ == "__main__":
                 r_multiplier=1.5,
                 entry_lvls=None,
                 highest_peak_lvl=3,
-                side_only=None,
             )
         ),
         expected_exceptions=(regime.NotEnoughDataError, sfcr.NoEntriesError)
@@ -437,12 +462,12 @@ if __name__ == "__main__":
             window=200,
             percentile=0.05,
             limit=5,
-            freq='15T',
+            freq=f'{_interval}T',
             # freq='1D',
             # freq='5T',
         ),
         relative_side_only=True
     )
     # stat_overview_ = stat_overview_.sort_values('risk_adj_returns_roll', axis=1, ascending=False)
-    stat_overview_.to_csv('stat_overview_1d.csv')
+    stat_overview_.to_csv('stat_overview.csv')
     print('done')

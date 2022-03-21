@@ -316,33 +316,33 @@ def retest_swing(df, _sign, _rt, hh_ll_dt, hh_ll, _c, _swg):
     return df
 
 
-def retracement_swing(
+def retrace_swing(
     df, _sign, _swg, _c, hh_ll_dt, hh_ll, vlty, retrace_vol, retrace_pct
 ):
     if _sign == 1:  #
-        retracement = df.loc[hh_ll_dt:, _c].min() - hh_ll
+        retrace = df.loc[hh_ll_dt:, _c].min() - hh_ll
 
         if (
             (vlty > 0)
             & (retrace_vol > 0)
-            & ((abs(retracement / vlty) - retrace_vol) > 0)
+            & ((abs(retrace / vlty) - retrace_vol) > 0)
         ):
             df.at[hh_ll_dt, _swg] = hh_ll
-        elif (retrace_pct > 0) & ((abs(retracement / hh_ll) - retrace_pct) > 0):
+        elif (retrace_pct > 0) & ((abs(retrace / hh_ll) - retrace_pct) > 0):
             df.at[hh_ll_dt, _swg] = hh_ll
 
     elif _sign == -1:
-        retracement = df.loc[hh_ll_dt:, _c].max() - hh_ll
+        retrace = df.loc[hh_ll_dt:, _c].max() - hh_ll
         if (
             (vlty > 0)
             & (retrace_vol > 0)
-            & ((round(retracement / vlty, 1) - retrace_vol) > 0)
+            & ((round(retrace / vlty, 1) - retrace_vol) > 0)
         ):
             df.at[hh_ll_dt, _swg] = hh_ll
-        elif (retrace_pct > 0) & ((round(retracement / hh_ll, 4) - retrace_pct) > 0):
+        elif (retrace_pct > 0) & ((round(retrace / hh_ll, 4) - retrace_pct) > 0):
             df.at[hh_ll_dt, _swg] = hh_ll
     else:
-        retracement = 0
+        retrace = 0
     return df
 
 
@@ -414,8 +414,12 @@ def relative(
     return df
 
 
-def simple_relative(df, bm_df):
-    return (df / bm_df) * 1000
+def simple_relative(df, bm_close, rebase=True):
+    """simplified version of relative calculation"""
+    bm = bm_close.ffill()
+    if rebase is True:
+        bm = bm.div(bm.iloc[0])
+    return df.div(bm)
 
 
 def init_swings(
@@ -445,7 +449,7 @@ def init_swings(
     # df = retest_swing(df, _sign, _rt, hh_ll_dt, hh_ll, _c, _swg)
     # retrace_vol = 2.5 * vlty
 
-    # df = retracement_swing(df, _sign, _swg, _c, hh_ll_dt, hh_ll, vlty, retrace_vol, retrace_pct)
+    # df = retrace_swing(df, _sign, _swg, _c, hh_ll_dt, hh_ll, vlty, retrace_vol, retrace_pct)
     return df
 
 
