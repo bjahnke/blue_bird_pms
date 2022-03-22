@@ -8,7 +8,6 @@ import typing as t
 import src.utils.regime as regime
 from src.pd_accessors import PriceTable
 import src.pd_accessors as pda
-import src.money_management as smm
 
 
 class StockDataGetter:
@@ -413,61 +412,3 @@ def run_scanner(scanner, stat_calculator, relative_side_only=True):
     stat_overview = stat_overview.reset_index(drop=True)
     return stat_overview
 
-
-def re_download_data(ticks, days, interval_str):
-    _downloaded_data = yf_download_data(ticks, days, interval_str)
-    _downloaded_data.to_csv(
-        fr'C:\Users\bjahnke\OneDrive - bjahnke\OneDrive\algo_data\history\history_{days}d_{interval_str}.csv'
-    )
-    yf_get_stock_data('SPY', days, interval_str).to_csv(
-        fr'C:\Users\bjahnke\OneDrive - bjahnke\OneDrive\algo_data\history\spy_{days}d_{interval_str}.csv'
-    )
-
-
-if __name__ == "__main__":
-    sp500_wiki = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-    ticks_, _ = get_wikipedia_stocks(sp500_wiki)
-    _days = 59
-    _interval = 15
-    _interval_str = f'{_interval}m'
-
-    scanner_ = StockDataGetter(
-        data_getter_method=lambda s: yf_get_stock_data(s, days=59, interval=_interval_str),
-    ).yield_strategy_data(
-        bench_symbol="SPY",
-        symbols=ticks_,
-        # symbols=['ABBV'],
-        strategy=lambda pdf_, bdf_: (
-            sfcr.fc_scale_strategy(
-                price_data=data_to_relative(pdf_, bdf_),
-                distance_pct=0.05,
-                retrace_pct=0.05,
-                swing_window=63,
-                sw_lvl=3,
-                regime_threshold=0.5,
-                trail_offset_pct=0.01,
-                r_multiplier=1.5,
-                entry_lvls=None,
-                highest_peak_lvl=3,
-            )
-        ),
-        expected_exceptions=(regime.NotEnoughDataError, sfcr.NoEntriesError)
-    )
-    stat_overview_ = run_scanner(
-        scanner=scanner_,
-        stat_calculator=lambda data_, entry_signals_: sfcr.calc_stats(
-            data_,
-            entry_signals_,
-            min_periods=50,
-            window=200,
-            percentile=0.05,
-            limit=5,
-            freq=f'{_interval}T',
-            # freq='1D',
-            # freq='5T',
-        ),
-        relative_side_only=True
-    )
-    # stat_overview_ = stat_overview_.sort_values('risk_adj_returns_roll', axis=1, ascending=False)
-    stat_overview_.to_csv('stat_overview.csv')
-    print('done')

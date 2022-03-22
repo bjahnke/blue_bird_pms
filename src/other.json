@@ -1,0 +1,21 @@
+{
+  "paths": {
+    "base": "",
+    "history": {
+      "15m": {
+        "SPY": "history_15m.csv"
+      }
+    },
+    "bench": {
+      "15": {
+        "SPY": "spy_15m.csv"
+      }
+    }
+  },
+  "other_data": [
+    {
+      "interval": "15m",
+      "bench": "SPY"
+    }
+  ]
+}
