@@ -1,13 +1,12 @@
 {
-  "paths": {
-    "base": "",
+  "files": {
     "history": {
       "15m": {
         "SPY": "history_15m.csv"
       }
     },
     "bench": {
-      "15": {
+      "15m": {
         "SPY": "spy_15m.csv"
       }
     }

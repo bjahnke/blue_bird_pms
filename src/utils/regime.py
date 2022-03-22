@@ -418,8 +418,12 @@ def simple_relative(df, bm_close, rebase=True):
     """simplified version of relative calculation"""
     bm = bm_close.ffill()
     if rebase is True:
-        bm = bm.div(bm.iloc[0])
-    return df.div(bm)
+        bm = bm.div(bm[0])
+    return df.div(bm, axis=0)
+
+
+def relative_all_rebase(df, bm_close, axis):
+    return df.div(bm_close * df.iloc[0], axis=axis) * bm_close[0]
 
 
 def init_swings(

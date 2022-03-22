@@ -18,21 +18,13 @@ class StockDataGetter:
 
     def get_stock_data(self, symbol: str) -> pd.DataFrame:
         data = self._data_getter_method(symbol)
-        data = data.rename(
-            columns={"Open": "open", "High": "high", "Low": "low", "Close": "close"}
-        )
+        if data is None:
+            return pd.DataFrame()
+        # data = data.rename(
+        #     columns={"Open": "open", "High": "high", "Low": "low", "Close": "close"}
+        # )
         PriceTable(data, symbol)
         return data[["open", "high", "low", "close"]]
-
-    def backtest_strategy(
-        self,
-        symbol,
-        bench_symbol,
-        strategy: t.Callable[[pd.DataFrame, pd.DataFrame], t.Any],
-    ):
-        symbol_data = self.get_stock_data(symbol)
-        bench_data = self.get_stock_data(bench_symbol)
-        return strategy(symbol_data, bench_data)
 
     def yield_strategy_data(
         self,
@@ -338,6 +330,7 @@ def yf_download_data(tickers, days, interval) -> pd.DataFrame:
 def run_scanner(scanner, stat_calculator, relative_side_only=True):
     stat_overview = pd.DataFrame()
     entry_data = {}
+    strategy_data_lookup = {}
     for symbol, symbol_data, bench_data, strategy_data in scanner:
         if symbol_data is None or strategy_data is None:
             continue
@@ -355,6 +348,10 @@ def run_scanner(scanner, stat_calculator, relative_side_only=True):
         stat_sheet_historical = stat_calculator(symbol_data, signals)
         if stat_sheet_historical is None:
             continue
+
+        strategy_data.stat_historical = stat_sheet_historical
+        strategy_data_lookup[symbol] = strategy_data
+
         # TODO fixed? TODO -2 because yf gives to the minute data despite before bar closes
         stat_sheet_final_scores = stat_sheet_historical.iloc[-1].copy()
         stat_sheet_final_scores['symbol'] = symbol
@@ -410,5 +407,5 @@ def run_scanner(scanner, stat_calculator, relative_side_only=True):
         stat_overview = pd.concat([stat_overview, stat_sheet_final_scores.to_frame().transpose()], ignore_index=True)
 
     stat_overview = stat_overview.reset_index(drop=True)
-    return stat_overview
+    return stat_overview, strategy_data_lookup
 

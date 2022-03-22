@@ -14,6 +14,7 @@ setup(
         'pandas',
         'matplotlib',
         'yfinance',
-        'scipy'
+        'scipy',
+        'feather'
     ]
 )

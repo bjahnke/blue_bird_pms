@@ -106,18 +106,25 @@ def t_stat_expanding(signal_count, edge):
 
 def robustness_score(grit, csr, sqn):
     # TODO should it start at 1?
+    _grit = grit.copy()
+    _csr = csr.copy()
+    _sqn = sqn.copy()
+    # the score will be zero if on metric is negative
+    _grit.loc[_grit < 0] = 0
+    _csr.loc[_csr < 0] = 0
+    _sqn.loc[_sqn < 0] = 0
     exclude_zeros = (sqn != 0) & (csr != 0) & (grit != 0)
     try:
         start_date = max(
-            grit[pd.notnull(grit) & exclude_zeros].index[0],
-            csr[pd.notnull(csr) & exclude_zeros].index[0],
-            sqn[pd.notnull(sqn) & exclude_zeros].index[0],
+            _grit[pd.notnull(_grit) & exclude_zeros].index[0],
+            _csr[pd.notnull(_csr) & exclude_zeros].index[0],
+            _sqn[pd.notnull(_sqn) & exclude_zeros].index[0],
         )
     except IndexError:
         score = pd.Series(data=np.NaN, index=grit.index)
     else:
         score = (
-            grit * csr * sqn / (grit[start_date] * csr[start_date] * sqn[start_date])
+            _grit * _csr * _sqn / (_grit[start_date] * _csr[start_date] * _sqn[start_date])
         )
     return score
 

@@ -1,7 +1,7 @@
 """
 this module contains code which ties all aspects of strategy together into a functional model
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import typing as t
 import numpy as np
@@ -9,10 +9,11 @@ import pandas as pd
 from matplotlib import pyplot as plt
 
 import yfinance as yf
-import pd_accessors as pda
+import src.pd_accessors as pda
 from src.utils import trading_stats as ts, regime
 import src.utils.regime
-import money_management as mm
+import src.money_management as mm
+
 
 def all_retest_swing(df, rt: str, dist_pct, retrace_pct, n_num, is_relative=False):
     """
@@ -543,6 +544,7 @@ class FcStrategyTables:
     valid_entries: pd.DataFrame
     stop_loss_series: pd.Series
     french_stop: pd.DataFrame
+    stats_history: pd.DataFrame = field(init=False)
 
 
 def fc_scale_strategy(
@@ -671,7 +673,6 @@ def calc_stats(
 ) -> t.Union[None, pd.DataFrame]:
     """
     get full stats of strategy, rolling and expanding
-    :param relative_side_only:
     :param freq:
     :param signals:
     :param price_data:
