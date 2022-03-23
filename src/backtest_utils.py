@@ -80,7 +80,7 @@ def run_backtest():
     ).yield_strategy_data(
         bench_symbol="SPY",
         symbols=ticks,
-        # symbols=['ABBV'],
+        # symbols=['CVX'],
         strategy=lambda pdf_, _: (
             sfcr.fc_scale_strategy(
                 price_data=scanner.data_to_relative(pdf_, bench),
@@ -186,5 +186,35 @@ def quick_plot(idx, price_data, r_close, bench):
     ).plot(figsize=(8, 3), use_index=False)
 
 
+def main_roll_scan():
+    _data_loader = DataLoader.init_from_paths('other.json', 'base.json')
+    _strategy_path = _data_loader.file_path('strategy_lookup.pkl')
+    with open(_strategy_path, 'rb') as f:
+        _strategy_lookup = pickle.load(f)
+
+    _bench_str = 'SPY'
+    _interval = '15m'
+    _price_data = pd.read_csv(_data_loader.history_path(_bench_str, _interval), index_col=0, header=[0, 1]).iloc[
+                  1:].astype('float64')
+    _price_data.index = pd.to_datetime(_price_data.index, utc=True)
+    _bench = pd.read_csv(_data_loader.bench_path(_bench_str, _interval), index_col=0).astype('float64')
+    _bench.index = pd.to_datetime(_bench.index, utc=True)
+    _relative_rebased = PriceGlob(_price_data).relative_rebased(_bench.close)
+    _strategy_overview = pd.read_csv(_data_loader.file_path('stat_overview_15m.csv'))
+
+    _price_data_by_symbol = PriceGlob(_price_data).swap_level()
+    _symbol = 'DXCM'
+    scanner.rolling_plot(
+        _price_data_by_symbol.data[_symbol],
+        _strategy_lookup[_symbol].enhanced_price_data,
+        _strategy_lookup[_symbol].stop_loss_series,
+        peak_table=_strategy_lookup[_symbol].peak_table,
+        ticker=_symbol,
+        plot_loop=False
+    )
+    print('d')
+
+
 if __name__ == '__main__':
-    run_backtest()
+    main_roll_scan()
+

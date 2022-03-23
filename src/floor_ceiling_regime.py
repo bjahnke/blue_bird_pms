@@ -15,7 +15,7 @@ import src.utils.regime
 import src.money_management as mm
 
 
-def all_retest_swing(df, rt: str, dist_pct, retrace_pct, n_num, is_relative=False):
+def all_retest_swing(df, rt: str, dist_pct, retrace_pct, n_num):
     """
     for back testing entries from swings
     get all retest values by working backward, storing the current retest value then
@@ -35,7 +35,7 @@ def all_retest_swing(df, rt: str, dist_pct, retrace_pct, n_num, is_relative=Fals
         try:
             working_df = df[["open", "close", "high", "low"]].iloc[:ix].copy()
             working_df = src.utils.regime.init_swings(
-                working_df, dist_pct, retrace_pct, n_num, is_relative=is_relative
+                working_df, dist_pct, retrace_pct, n_num,
             )
             retest_val_lookup = ~pd.isna(working_df[rt])
             retest_value_row = working_df[rt].loc[retest_val_lookup]

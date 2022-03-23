@@ -276,7 +276,6 @@ class SignalTable(PivotTable):
         """
 
 
-
 class PositionTable(PivotTable):
     """
     Table defines pivot periods where
@@ -326,6 +325,40 @@ class FrenchStop(Table):
 #         pd.date_range(start=start_value, end=end.iloc[idx], freq=freq)
 #         for idx, start_value in start.iteritems()
 #     )
+
+
+class PeakTable(PivotTable):
+    mandatory_cols = [
+        'start',
+        'end',
+        'type',
+        'lvl'
+    ]
+
+    def __init__(self, data: pd.DataFrame, name="peaks"):
+        super().__init__(
+            data=data,
+            name=name,
+            start_date_col="start",
+            end_date_col="end",
+        )
+
+    def start_price(self, price_data):
+        """get price by start date and type, result can be assigned to series"""
+        return self._get_price(price_data, 'start')
+
+    def end_price(self, price_data):
+        """get price by end date and type, result can be assigned to series"""
+        return self._get_price(price_data, 'end')
+
+    def _get_price(self, price_data, date_col):
+        """get price of the given date col based on type (swing hi/swing lo)"""
+        _pt = self.data.copy()
+        return np.where(
+            _pt.type == 1,
+            price_data.low.loc[_pt[date_col]],
+            price_data.high.loc[_pt[date_col]],
+        )
 
 
 def unpivot(

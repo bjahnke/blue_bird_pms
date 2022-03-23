@@ -79,7 +79,12 @@ def rolling_plot(
     price_data: pd.DataFrame,
     ndf,
     stop_loss_t,
+    peak_table,
     ticker,
+    freq='15T',
+    plot_rolling_lag=True,
+    plot_loop=True
+
 ):
     """
     recalculates the strategy on a rolling window of the given data to visualize how
@@ -96,31 +101,52 @@ def rolling_plot(
     index = initial_size
     fp_rg = None
     hi2_lag = None
+    hi3_lag = None
     lo2_lag = None
+    lo3_lag = None
     hi2_discovery_dts = []
+    hi3_discovery_dts = []
     lo2_discovery_dts = []
-    d = price_data[[_open, _high, _low, _close]].copy().iloc[:index]
+    lo3_discovery_dts = []
+
+    pt = pda.PeakTable(peak_table)
+    pt.data['px'] = pt.start_price(ndf)
+    pt = pt.unpivot(freq, ndf.index)
+    _shi_px = pt.loc[(pt.type == -1)]
+    _shi_2 = _shi_px.loc[(_shi_px.lvl == 2)]
+    _shi_3 = _shi_px.loc[(_shi_px.lvl == 3)]
+
+    _slo_px = pt.loc[(pt.type == 1)]
+    _slo_2 = _slo_px.loc[(_slo_px.lvl == 2)]
+    _slo_3 = _slo_px.loc[(_slo_px.lvl == 3)]
+
+    ndf['hi2_lag'] = _shi_2.px.copy()
+    ndf['hi3_lag'] = _shi_3.px.copy()
+    ndf['lo2_lag'] = _slo_2.px.copy()
+    ndf['lo3_lag'] = _slo_3.px.copy()
+
+    d = ndf[[_open, _high, _low, _close, 'hi2_lag', 'hi3_lag', 'lo2_lag', 'lo3_lag']].copy().iloc[:index]
 
     ndf["stop_loss"] = stop_loss_t
-    a = ndf[
-        [_close, "hi3", "lo3", "clg", "flr", "rg_ch", "hi2", "lo2", "stop_loss"]
-    ].plot(
-        style=["grey", "ro", "go", "kv", "k^", "c:", "r.", "g."],
-        figsize=(15, 5),
-        grid=True,
-        title=str.upper(ticker),
-        use_index=use_index,
-    )
-
-    ndf["rg"].plot(
-        style=["b-."],
-        # figsize=(15, 5),
-        # marker='o',
-        secondary_y=["rg"],
-        ax=a,
-        use_index=use_index,
-    )
-    plt.show()
+    # a = ndf[
+    #     [_close, "hi3", "lo3", "clg", "flr", "rg_ch", "hi2", "lo2", "stop_loss"]
+    # ].plot(
+    #     style=["grey", "ro", "go", "kv", "k^", "c:", "r.", "g."],
+    #     figsize=(15, 5),
+    #     # grid=True,
+    #     title=str.upper(ticker),
+    #     use_index=use_index,
+    # )
+    #
+    # ndf["rg"].plot(
+    #     style=["b-."],
+    #     # figsize=(15, 5),
+    #     # marker='o',
+    #     secondary_y=["rg"],
+    #     ax=a,
+    #     use_index=use_index,
+    # )
+    # plt.show()
     # all_retest_swing(data, 'rt', distance_percent, retrace_percent, swing_window)
     # data[['close', 'hi3', 'lo3', 'rt']].plot(
     #     style=['grey', 'rv', 'g^', 'ko'],
@@ -147,94 +173,112 @@ def rolling_plot(
 
     """
 
-    for idx, row in price_data.iterrows():
-        if (num := price_data.index.get_loc(idx)) <= index:
+    def plot(_ticker, _d, _plot_window, _use_index, _axis=None):
+        _axis = (
+            _d[
+                [_close, "hi3", "lo3", "clg", "flr", "rg_ch", 'rt', "rg", 'hi2_lag', 'hi3_lag', 'lo2_lag', 'lo3_lag']
+            ]
+                .iloc[_plot_window:]
+                .plot(
+                    style=["grey", "ro", "go", "kv", "k^", "c:", 'k.'],
+                    figsize=(15, 5),
+                    secondary_y=["rg"],
+                    # grid=True,
+                    title=str.upper(_ticker),
+                    use_index=_use_index,
+                    ax=axis
+                )
+        )
+        return _axis
+
+    new_axis = True
+
+    for idx, row in ndf.iterrows():
+        if (num := ndf.index.get_loc(idx)) <= index:
             print(f"iter index {num}")
             continue
         d.at[idx] = row
         try:
             res = sfcr.fc_scale_strategy(d)
+            rt_copy = d.rt.copy()
             d = res.enhanced_price_data
+            d.rt.loc[pd.notna(rt_copy)] = rt_copy.loc[pd.notna(rt_copy)]
 
             if fp_rg is None:
                 fp_rg = d.rg.copy()
                 fp_rg = fp_rg.fillna(0)
                 hi2_lag = d.hi2.copy()
+                hi3_lag = d.hi3.copy()
                 lo2_lag = d.lo2.copy()
+                lo3_lag = d.lo3.copy()
             else:
                 fp_rg = fp_rg.reindex(d.rg.index)
                 new_val = d.rg.loc[pd.isna(fp_rg)][0]
                 fp_rg.loc[idx] = new_val
-
                 hi2_lag = sfcr.update_sw_lag(hi2_lag, d.hi2, hi2_discovery_dts)
+                hi3_lag = sfcr.update_sw_lag(hi3_lag, d.hi3, hi3_discovery_dts)
                 lo2_lag = sfcr.update_sw_lag(lo2_lag, d.lo2, lo2_discovery_dts)
+                lo3_lag = sfcr.update_sw_lag(lo3_lag, d.lo3, lo3_discovery_dts)
 
-        except KeyError:
+        except (KeyError, AttributeError):
             pass
         else:
             pass
             # live print procedure
             try:
-                data_plot_window = len(d.index) - plot_window
-                if axis is None:
-                    axis = (
-                        d[[_close, "hi3", "lo3", "clg", "flr", "rg_ch", "rg"]]
-                        .iloc[index - plot_window:]
-                        .plot(
-                            style=["grey", "ro", "go", "kv", "k^", "c:", "b-."],
-                            figsize=(15, 5),
-                            secondary_y=["rg"],
-                            grid=True,
-                            title=str.upper(ticker),
-                            use_index=use_index,
+                if plot_loop is True:
+                    data_plot_window = len(d.index) - plot_window
+                    if new_axis is False:
+                        plt.gca().cla()
+                        axis.clear()
+                        main_plot_window = data_plot_window
+                    else:
+                        main_plot_window = index - plot_window
+
+                    current_axis = plot(
+                        _ticker=ticker,
+                        _d=d,
+                        _plot_window=main_plot_window,
+                        _use_index=use_index,
+                        _axis=axis
+                    )
+
+                    fp_rg.iloc[data_plot_window:].plot(
+                        style="y-.", secondary_y=True, use_index=use_index, ax=axis
+                    )
+
+                    if plot_rolling_lag is True:
+                        hi2_lag.iloc[data_plot_window:].plot(
+                            style="ro", use_index=use_index, ax=axis
                         )
-                    )
-                    fp_rg.iloc[data_plot_window:].plot(
-                        style="y-.", secondary_y=True, use_index=use_index, ax=axis
-                    )
-                    hi2_lag.iloc[data_plot_window:].plot(
-                        style="r.", use_index=use_index, ax=axis
-                    )
-                    lo2_lag.iloc[data_plot_window:].plot(
-                        style="g.", use_index=use_index, ax=axis
-                    )
-                    plt.ion()
-                    plt.show()
-                    plt.pause(0.001)
-                else:
-                    plt.gca().cla()
-                    axis.clear()
-                    d[[_close, "hi3", "lo3", "clg", "flr", "rg_ch", "rg"]].iloc[
-                        data_plot_window:
-                    ].plot(
-                        style=["grey", "ro", "go", "kv", "k^", "c:", "b-."],
-                        figsize=(15, 5),
-                        secondary_y=["rg"],
-                        grid=True,
-                        title=str.upper(ticker),
-                        ax=axis,
-                        use_index=use_index,
-                    )
-                    fp_rg.iloc[data_plot_window:].plot(
-                        style="y-.", secondary_y=True, use_index=use_index, ax=axis
-                    )
-                    hi2_lag.iloc[data_plot_window:].plot(
-                        style="r.", use_index=use_index, ax=axis
-                    )
-                    lo2_lag.iloc[data_plot_window:].plot(
-                        style="g.", use_index=use_index, ax=axis
-                    )
-                    # d.rt.iloc[window:].plot(style='k.', use_index=use_index, ax=axis)
+                        lo2_lag.iloc[data_plot_window:].plot(
+                            style="go", use_index=use_index, ax=axis
+                        )
+                        hi3_lag.iloc[data_plot_window:].plot(
+                            style="r.", use_index=use_index, ax=axis
+                        )
+                        lo3_lag.iloc[data_plot_window:].plot(
+                            style="g.", use_index=use_index, ax=axis
+                        )
+
+                    if new_axis is True:
+                        new_axis = False
+                        axis = current_axis
+                        plt.ion()
+                        plt.show()
+
                     plt.pause(0.001)
             except Exception as e:
                 print(e)
         print(idx)
 
-    # plt.close()
+    if plot_loop is True:
+        plt.close()
+
     a = ndf[[_close, "hi3", "lo3", "clg", "flr", "rg_ch"]].plot(
         style=["grey", "ro", "go", "kv", "k^", "c:"],
         figsize=(15, 5),
-        grid=True,
+        # grid=True,
         title=str.upper(ticker),
         use_index=use_index,
     )
@@ -247,9 +291,13 @@ def rolling_plot(
         use_index=use_index,
     )
     fp_rg.plot(style="y-.", secondary_y=True, use_index=use_index, ax=a)
-    hi2_lag.plot(style="r.", use_index=use_index, ax=axis)
-    lo2_lag.plot(style="g.", use_index=use_index, ax=axis)
+    hi2_lag.plot(style="ro", use_index=use_index, ax=a)
+    hi3_lag.plot(style="r.", use_index=use_index, ax=a)
+    lo2_lag.plot(style="go", use_index=use_index, ax=a)
+    lo3_lag.plot(style="g.", use_index=use_index, ax=a)
     plt.show()
+
+    return
 
 
 def yf_get_stock_data(symbol, days, interval: str) -> pd.DataFrame:
@@ -408,4 +456,3 @@ def run_scanner(scanner, stat_calculator, relative_side_only=True):
 
     stat_overview = stat_overview.reset_index(drop=True)
     return stat_overview, strategy_data_lookup
-

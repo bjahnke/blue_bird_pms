@@ -94,7 +94,7 @@ def regime_args(df, lvl, is_relative=False):
 def hilo_alternation(hilo, dist=None, hurdle=None):
     i = 0
     while (
-        np.sign(hilo.shift(1)) == np.sign(hilo)
+            np.sign(hilo.shift(1)) == np.sign(hilo)
     ).any():  # runs until duplicates are eliminated
 
         # removes swing lows > swing highs
@@ -102,31 +102,31 @@ def hilo_alternation(hilo, dist=None, hurdle=None):
             (np.sign(hilo.shift(1)) != np.sign(hilo))
             & (hilo.shift(1) < 0)  # hilo alternation test
             & (np.abs(hilo.shift(1)) < np.abs(hilo))  # previous datapoint:  high
-        ] = np.nan  # high[-1] < low, eliminate low
+            ] = np.nan  # high[-1] < low, eliminate low
 
         hilo.loc[
             (np.sign(hilo.shift(1)) != np.sign(hilo))
             & (hilo.shift(1) > 0)  # hilo alternation
             & (np.abs(hilo) < hilo.shift(1))  # previous swing: low
-        ] = np.nan  # swing high < swing low[-1]
+            ] = np.nan  # swing high < swing low[-1]
 
         # alternation test: removes duplicate swings & keep extremes
         hilo.loc[
             (np.sign(hilo.shift(1)) == np.sign(hilo))
             & (hilo.shift(1) < hilo)  # same sign
-        ] = np.nan  # keep lower one
+            ] = np.nan  # keep lower one
 
         hilo.loc[
             (np.sign(hilo.shift(-1)) == np.sign(hilo))
             & (hilo.shift(-1) < hilo)  # same sign, forward looking
-        ] = np.nan  # keep forward one
+            ] = np.nan  # keep forward one
 
         # removes noisy swings: distance test
         if pd.notnull(dist):
             hilo.loc[
                 (np.sign(hilo.shift(1)) != np.sign(hilo))
                 & (np.abs(hilo + hilo.shift(1)).div(dist, fill_value=1) < hurdle)
-            ] = np.nan
+                ] = np.nan
 
         # reduce hilo after each pass
         hilo = hilo.dropna().copy()
@@ -136,7 +136,7 @@ def hilo_alternation(hilo, dist=None, hurdle=None):
         return hilo
 
 
-def historical_swings(df, _o, _h, _l, _c, dist=None, hurdle=None, round_place=2):
+def historical_swings(df, _o, _h, _l, _c, round_place=2):
     reduction = df[[_o, _h, _l, _c]].copy()
 
     reduction["avg_px"] = round(reduction[[_h, _l, _c]].mean(axis=1), round_place)
@@ -207,12 +207,12 @@ def cleanup_latest_swing(df, shi, slo, rt_hi, rt_lo):
     for i in range(2):
 
         if (len_shi_dt > len_slo_dt) & (
-            (df.loc[shi_dt:, rt_hi].max() > s_hi) | (s_hi < s_lo)
+                (df.loc[shi_dt:, rt_hi].max() > s_hi) | (s_hi < s_lo)
         ):
             df.loc[shi_dt, shi] = np.nan
             len_shi_dt = 0
         elif (len_slo_dt > len_shi_dt) & (
-            (df.loc[slo_dt:, rt_lo].min() < s_lo) | (s_hi < s_lo)
+                (df.loc[slo_dt:, rt_lo].min() < s_lo) | (s_hi < s_lo)
         ):
             df.loc[slo_dt, slo] = np.nan
             len_slo_dt = 0
@@ -224,11 +224,22 @@ def cleanup_latest_swing(df, shi, slo, rt_hi, rt_lo):
 
 def latest_swing_variables(df, shi, slo, rt_hi, rt_lo, _h, _l, _c):
     """
-    Latest swings dates & values
+
+    :param df:
+    :param shi:
+    :param slo:
+    :param rt_hi:
+    :param rt_lo:
+    :param _h:
+    :param _l:
+    :param _c:
+    :return:
     """
     try:
+        # get that latest swing hi/lo dates
         shi_dt = df.loc[pd.notnull(df[shi]), shi].index[-1]
         slo_dt = df.loc[pd.notnull(df[slo]), slo].index[-1]
+
         s_hi = df.loc[pd.notnull(df[shi]), shi][-1]
         s_lo = df.loc[pd.notnull(df[slo]), slo][-1]
     except IndexError:
@@ -255,15 +266,21 @@ def latest_swing_variables(df, shi, slo, rt_hi, rt_lo, _h, _l, _c):
             df.loc[shi_dt:, _l].idxmin(),
         ]
     else:
-        ud = 0
-    ud, bs, bs_dt, _rt, _swg, hh_ll, hh_ll_dt = [
-        swg_var[h] for h in range(len(swg_var))
-    ]
+        swg_var = [0] * 7
 
-    return ud, bs, bs_dt, _rt, _swg, hh_ll, hh_ll_dt
+    return swg_var
 
 
 def test_distance(ud, bs, hh_ll, dist_vol, dist_pct):
+    """
+
+    :param ud: direction
+    :param bs: base, swing hi/lo
+    :param hh_ll: lowest low or highest high
+    :param dist_vol:
+    :param dist_pct:
+    :return:
+    """
     # priority: 1. Vol 2. pct 3. dflt
     if dist_vol > 0:
         distance_test = np.sign(abs(hh_ll - bs) - dist_vol)
@@ -275,19 +292,41 @@ def test_distance(ud, bs, hh_ll, dist_vol, dist_pct):
     return int(max(distance_test, 0) * ud)
 
 
-def average_true_range(df, _h, _l, _c, n):
+def average_true_range(
+        df: pd.DataFrame,
+        _h: str,
+        _l: str,
+        _c: str,
+        window: int
+):
     """
     http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:average_true_range_atr
     """
-    atr = (
-        (df[_h].combine(df[_c].shift(), max) - df[_l].combine(df[_c].shift(), min))
-        .rolling(window=n)
-        .mean()
-    )
+    _max = df[_h].combine(df[_c].shift(), max)
+    _min = df[_l].combine(df[_c].shift(), min)
+    atr = (_max - _min).rolling(window=window).mean()
     return atr
 
 
-def retest_swing(df, _sign, _rt, hh_ll_dt, hh_ll, _c, _swg):
+def retest_swing(
+        df,
+        _sign: int,
+        _rt,
+        hh_ll_dt: pd.Timestamp,
+        hh_ll: float,
+        _c: str,
+        _swg
+):
+    """
+    :param df:
+    :param _sign:
+    :param _rt:
+    :param hh_ll_dt: date of hh_ll
+    :param hh_ll: lowest low or highest high
+    :param _c: close col str
+    :param _swg: series to assign the value, shi for swing hi, slo for swing lo
+    :return:
+    """
     rt_sgmt = df.loc[hh_ll_dt:, _rt]
 
     if (rt_sgmt.count() > 0) & (_sign != 0):  # Retests exist and distance test met
@@ -295,14 +334,14 @@ def retest_swing(df, _sign, _rt, hh_ll_dt, hh_ll, _c, _swg):
             rt_list = [
                 rt_sgmt.idxmax(),
                 rt_sgmt.max(),
-                df.loc[rt_sgmt.idxmax() :, _c].cummin(),
+                df.loc[rt_sgmt.idxmax():, _c].cummin(),
             ]
 
         elif _sign == -1:
             rt_list = [
                 rt_sgmt.idxmin(),
                 rt_sgmt.min(),
-                df.loc[rt_sgmt.idxmin() :, _c].cummax(),
+                df.loc[rt_sgmt.idxmin():, _c].cummax(),
             ]
         rt_dt, rt_hurdle, rt_px = [rt_list[h] for h in range(len(rt_list))]
 
@@ -317,15 +356,15 @@ def retest_swing(df, _sign, _rt, hh_ll_dt, hh_ll, _c, _swg):
 
 
 def retrace_swing(
-    df, _sign, _swg, _c, hh_ll_dt, hh_ll, vlty, retrace_vol, retrace_pct
+        df, _sign, _swg, _c, hh_ll_dt, hh_ll, vlty, retrace_vol, retrace_pct
 ):
     if _sign == 1:  #
         retrace = df.loc[hh_ll_dt:, _c].min() - hh_ll
 
         if (
-            (vlty > 0)
-            & (retrace_vol > 0)
-            & ((abs(retrace / vlty) - retrace_vol) > 0)
+                (vlty > 0)
+                & (retrace_vol > 0)
+                & ((abs(retrace / vlty) - retrace_vol) > 0)
         ):
             df.at[hh_ll_dt, _swg] = hh_ll
         elif (retrace_pct > 0) & ((abs(retrace / hh_ll) - retrace_pct) > 0):
@@ -334,9 +373,9 @@ def retrace_swing(
     elif _sign == -1:
         retrace = df.loc[hh_ll_dt:, _c].max() - hh_ll
         if (
-            (vlty > 0)
-            & (retrace_vol > 0)
-            & ((round(retrace / vlty, 1) - retrace_vol) > 0)
+                (vlty > 0)
+                & (retrace_vol > 0)
+                & ((round(retrace / vlty, 1) - retrace_vol) > 0)
         ):
             df.at[hh_ll_dt, _swg] = hh_ll
         elif (retrace_pct > 0) & ((round(retrace / hh_ll, 4) - retrace_pct) > 0):
@@ -347,17 +386,17 @@ def retrace_swing(
 
 
 def relative(
-    df: pd.DataFrame,
-    bm_df: pd.DataFrame,
-    bm_col: str = "close",
-    _o: str = "open",
-    _h: str = "high",
-    _l: str = "low",
-    _c: str = "close",
-    ccy_df: typing.Optional[pd.DataFrame] = None,
-    ccy_col: typing.Optional[str] = None,
-    dgt: typing.Optional[int] = None,
-    rebase: typing.Optional[bool] = True,
+        df: pd.DataFrame,
+        bm_df: pd.DataFrame,
+        bm_col: str = "close",
+        _o: str = "open",
+        _h: str = "high",
+        _l: str = "low",
+        _c: str = "close",
+        ccy_df: typing.Optional[pd.DataFrame] = None,
+        ccy_col: typing.Optional[str] = None,
+        dgt: typing.Optional[int] = None,
+        rebase: typing.Optional[bool] = True,
 ) -> pd.DataFrame:
     """
     df: df
@@ -427,49 +466,56 @@ def relative_all_rebase(df, bm_close, axis):
 
 
 def init_swings(
-    df: pd.DataFrame,
-    dist_pct: float,
-    retrace_pct: float,
-    n_num: int,
-    is_relative=False,
-    lvl=3,
+        df: pd.DataFrame,
+        dist_pct: float,
+        retrace_pct: float,
+        n_num: int,
+        lvl=3,
 ):
-    _o, _h, _l, _c = lower_upper_ohlc(df, is_relative=is_relative)
-    # swings = ['hi3', 'lo3', 'hi1', 'lo1']
-    swings = [f"hi{lvl}", f"lo{lvl}", "hi1", "lo1"]
-    if is_relative:
-        swings = [f"r_{name}" for name in swings]
-    shi, slo, rt_hi, rt_lo = swings
+    _o, _h, _l, _c = lower_upper_ohlc(df)
+    shi = f'hi{lvl}'
+    slo = f'lo{lvl}'
+    rt_hi = 'hi1'
+    rt_lo = 'lo1'
 
-    df = historical_swings(df, _o=_o, _h=_h, _l=_l, _c=_c, dist=None, hurdle=None)
+    df = historical_swings(df, _o=_o, _h=_h, _l=_l, _c=_c)
     df = cleanup_latest_swing(df, shi=shi, slo=slo, rt_hi=rt_hi, rt_lo=rt_lo)
-    ud, bs, bs_dt, _rt, _swg, hh_ll, hh_ll_dt = latest_swing_variables(
+
+    (
+        ud,  # direction +1up, -1down
+        bs,  # base, swing hi/lo
+        bs_dt,  # swing date
+        _rt,  # series name used to detect swing, rt_lo for swing hi, rt_hi for swing lo
+        _swg,  # series to assign the value, shi for swing hi, slo for swing lo
+        hh_ll,  # lowest low or highest high
+        hh_ll_dt  # date of hh_ll
+    ) = latest_swing_variables(
         df, shi, slo, rt_hi, rt_lo, _h, _l, _c
     )
-    vlty = round(average_true_range(df=df, _h=_h, _l=_l, _c=_c, n=n_num)[hh_ll_dt], 2)
+    volatility_series = average_true_range(df=df, _h=_h, _l=_l, _c=_c, window=n_num)
+    vlty = round(volatility_series[hh_ll_dt], 2)
     dist_vol = 5 * vlty
 
-    # _sign = test_distance(ud, bs, hh_ll, dist_vol, dist_pct)
-    # df = retest_swing(df, _sign, _rt, hh_ll_dt, hh_ll, _c, _swg)
-    # retrace_vol = 2.5 * vlty
-
-    # df = retrace_swing(df, _sign, _swg, _c, hh_ll_dt, hh_ll, vlty, retrace_vol, retrace_pct)
+    _sign = test_distance(ud, bs, hh_ll, dist_vol, dist_pct)
+    df = retest_swing(df, _sign, _rt, hh_ll_dt, hh_ll, _c, _swg)
+    retrace_vol = 2.5 * vlty
+    df = retrace_swing(df, _sign, _swg, _c, hh_ll_dt, hh_ll, vlty, retrace_vol, retrace_pct)
     return df
 
 
 def regime_floor_ceiling(
-    df: pd.DataFrame,
-    slo: str,
-    shi: str,
-    flr,
-    clg,
-    rg,
-    rg_ch,
-    stdev,
-    threshold,
-    _h: str = "high",
-    _l: str = "low",
-    _c: str = "close",
+        df: pd.DataFrame,
+        slo: str,
+        shi: str,
+        flr,
+        clg,
+        rg,
+        rg_ch,
+        stdev,
+        threshold,
+        _h: str = "high",
+        _l: str = "low",
+        _c: str = "close",
 ):
     # Lists instantiation
     threshold_test, rg_ch_ix_list, rg_ch_list = [], [], []
@@ -482,36 +528,40 @@ def regime_floor_ceiling(
     # Boolean variables
     ceiling_found = floor_found = breakdown = breakout = False
 
-    # Swings lists
-    swing_highs = list(df[pd.notnull(df[shi])][shi])
-    swing_highs_ix = list(df[pd.notnull(df[shi])].index)
-    swing_lows = list(df[pd.notnull(df[slo])][slo])
-    swing_lows_ix = list(df[pd.notnull(df[slo])].index)
+    # Swing lists
+    swing_highs = df.loc[pd.notnull(df[shi]), shi]
+    swing_highs_ix = list(swing_highs.index)
+    swing_highs = list(swing_highs)
+
+    swing_lows = df.loc[pd.notnull(df[slo]), slo]
+    swing_lows_ix = list(swing_lows.index)
+    swing_lows = list(swing_lows)
+
     loop_size = np.maximum(len(swing_highs), len(swing_lows))
 
     # Loop through swings
     for i in range(loop_size):
 
-        # asymetric swing list: default to last swing if shorter list
+        # asymmetric swing list: default to last swing if shorter list
         try:
             s_lo_ix = swing_lows_ix[i]
             s_lo = swing_lows[i]
-        except:
+        except IndexError:
             s_lo_ix = swing_lows_ix[-1]
             s_lo = swing_lows[-1]
 
         try:
             s_hi_ix = swing_highs_ix[i]
             s_hi = swing_highs[i]
-        except:
+        except IndexError:
             s_hi_ix = swing_highs_ix[-1]
             s_hi = swing_highs[-1]
 
         swing_max_ix = np.maximum(s_lo_ix, s_hi_ix)  # latest swing index
 
         # CLASSIC CEILING DISCOVERY
-        if ceiling_found == False:
-            top = df[floor_ix_list[-1] : s_hi_ix][_h].max()
+        if ceiling_found is False:
+            top = df[floor_ix_list[-1]: s_hi_ix][_h].max()
             ceiling_test = round((s_hi - top) / stdev[s_hi_ix], 1)
 
             # Classic ceiling test
@@ -523,35 +573,35 @@ def regime_floor_ceiling(
 
                 # Append lists
                 ceiling_list.append(top)
-                ceiling_ix_list.append(df[floor_ix_list[-1] : s_hi_ix][_h].idxmax())
+                ceiling_ix_list.append(df[floor_ix_list[-1]: s_hi_ix][_h].idxmax())
                 rg_ch_ix_list.append(s_hi_ix)
                 rg_ch_list.append(s_hi)
 
                 # EXCEPTION HANDLING: price penetrates discovery swing
         # 1. if ceiling found, calculate regime since rg_ch_ix using close.cummin
-        elif ceiling_found == True:
-            close_high = df[rg_ch_ix_list[-1] : swing_max_ix][_c].cummax()
-            df.loc[rg_ch_ix_list[-1] : swing_max_ix, rg] = np.sign(
+        elif ceiling_found is True:
+            close_high = df[rg_ch_ix_list[-1]: swing_max_ix][_c].cummax()
+            df.loc[rg_ch_ix_list[-1]: swing_max_ix, rg] = np.sign(
                 close_high - rg_ch_list[-1]
             )
 
             # 2. if price.cummax penetrates swing high: regime turns bullish, breakout
-            if (df.loc[rg_ch_ix_list[-1] : swing_max_ix, rg] > 0).any():
+            if (df.loc[rg_ch_ix_list[-1]: swing_max_ix, rg] > 0).any():
                 # Boolean flags reset
                 floor_found = ceiling_found = breakdown = False
                 breakout = True
 
         # 3. if breakout, test for bearish pullback from highest high since rg_ch_ix
-        if breakout == True:
-            brkout_high_ix = df.loc[rg_ch_ix_list[-1] : swing_max_ix, _c].idxmax()
+        if breakout is True:
+            brkout_high_ix = df.loc[rg_ch_ix_list[-1]: swing_max_ix, _c].idxmax()
             brkout_low = df[brkout_high_ix:swing_max_ix][_c].cummin()
             df.loc[brkout_high_ix:swing_max_ix, rg] = np.sign(
                 brkout_low - rg_ch_list[-1]
             )
 
         # CLASSIC FLOOR DISCOVERY
-        if floor_found == False:
-            bottom = df[ceiling_ix_list[-1] : s_lo_ix][_l].min()
+        if floor_found is False:
+            bottom = df[ceiling_ix_list[-1]: s_lo_ix][_l].min()
             floor_test = round((s_lo - bottom) / stdev[s_lo_ix], 1)
 
             # Classic floor test
@@ -563,28 +613,28 @@ def regime_floor_ceiling(
 
                 # Append lists
                 floor_list.append(bottom)
-                floor_ix_list.append(df[ceiling_ix_list[-1] : s_lo_ix][_l].idxmin())
+                floor_ix_list.append(df[ceiling_ix_list[-1]: s_lo_ix][_l].idxmin())
                 rg_ch_ix_list.append(s_lo_ix)
                 rg_ch_list.append(s_lo)
 
         # EXCEPTION HANDLING: price penetrates discovery swing
         # 1. if floor found, calculate regime since rg_ch_ix using close.cummin
-        elif floor_found == True:
-            close_low = df[rg_ch_ix_list[-1] : swing_max_ix][_c].cummin()
-            df.loc[rg_ch_ix_list[-1] : swing_max_ix, rg] = np.sign(
+        elif floor_found is True:
+            close_low = df[rg_ch_ix_list[-1]: swing_max_ix][_c].cummin()
+            df.loc[rg_ch_ix_list[-1]: swing_max_ix, rg] = np.sign(
                 close_low - rg_ch_list[-1]
             )
 
             # 2. if price.cummin penetrates swing low: regime turns bearish, breakdown
-            if (df.loc[rg_ch_ix_list[-1] : swing_max_ix, rg] < 0).any():
+            if (df.loc[rg_ch_ix_list[-1]: swing_max_ix, rg] < 0).any():
                 floor_found = floor_found = breakout = False
                 breakdown = True
 
                 # 3. if breakdown,test for bullish rebound from lowest low since rg_ch_ix
-        if breakdown == True:
+        if breakdown is True:
             brkdwn_low_ix = df.loc[
-                rg_ch_ix_list[-1] : swing_max_ix, _c
-            ].idxmin()  # lowest low
+                            rg_ch_ix_list[-1]: swing_max_ix, _c
+                            ].idxmin()  # lowest low
             breakdown_rebound = df[brkdwn_low_ix:swing_max_ix][_c].cummax()  # rebound
             df.loc[brkdwn_low_ix:swing_max_ix, rg] = np.sign(
                 breakdown_rebound - rg_ch_list[-1]

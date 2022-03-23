@@ -105,6 +105,10 @@ def t_stat_expanding(signal_count, edge):
 
 
 def robustness_score(grit, csr, sqn):
+    """
+    clamp constituents of robustness score to >=0 to avoid positive scores when 2 values are negative
+    exclude zeros when finding start date for rebase to avoid infinite score (divide by zero)
+    """
     # TODO should it start at 1?
     _grit = grit.copy()
     _csr = csr.copy()
@@ -113,7 +117,7 @@ def robustness_score(grit, csr, sqn):
     _grit.loc[_grit < 0] = 0
     _csr.loc[_csr < 0] = 0
     _sqn.loc[_sqn < 0] = 0
-    exclude_zeros = (sqn != 0) & (csr != 0) & (grit != 0)
+    exclude_zeros = (_grit != 0) & (_csr != 0) & (_sqn != 0)
     try:
         start_date = max(
             _grit[pd.notnull(_grit) & exclude_zeros].index[0],
