@@ -577,6 +577,7 @@ def fc_scale_strategy(
         sw_lvl=sw_lvl,
         standard_dev=standard_dev,
         regime_threshold=regime_threshold,
+        peak_table=peak_table
     )
 
     valid_entries, stop_loss_series, french_stop = init_signal_stop_loss_tables(
@@ -621,15 +622,14 @@ def init_regime_table(
     sw_lvl,
     standard_dev,
     regime_threshold,
+    peak_table,
 ):
     """initialization of regime table bundled together"""
-    shi = f"hi{sw_lvl}"
-    slo = f"lo{sw_lvl}"
 
     data_with_regimes = src.utils.regime.regime_floor_ceiling(
         df=enhanced_price_data,
-        slo=slo,
-        shi=shi,
+        peak_table=peak_table,
+        sw_lvl=sw_lvl,
         flr="flr",
         clg="clg",
         rg="rg",

@@ -206,11 +206,12 @@ def main_roll_scan():
     _symbol = 'DXCM'
     scanner.rolling_plot(
         _price_data_by_symbol.data[_symbol],
-        _strategy_lookup[_symbol].enhanced_price_data,
+        _strategy_lookup[_symbol].enhanced_price_data[['open', 'high', 'low', 'close']],
         _strategy_lookup[_symbol].stop_loss_series,
         peak_table=_strategy_lookup[_symbol].peak_table,
         ticker=_symbol,
-        plot_loop=False
+        plot_loop=True,
+        plot_rolling_lag=False
     )
     print('d')
 

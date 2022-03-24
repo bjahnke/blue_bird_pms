@@ -5,6 +5,8 @@ import yfinance as yf
 import src.floor_ceiling_regime as sfcr
 from datetime import datetime, timedelta
 import typing as t
+
+import src.utils.regime
 import src.utils.regime as regime
 from src.pd_accessors import PriceTable
 import src.pd_accessors as pda
@@ -95,7 +97,7 @@ def rolling_plot(
     _low = "low"
     _close = "close"
     use_index = False
-    initial_size = 600
+    initial_size = 175
     plot_window = 250
     axis = None
     index = initial_size
@@ -175,12 +177,10 @@ def rolling_plot(
 
     def plot(_ticker, _d, _plot_window, _use_index, _axis=None):
         _axis = (
-            _d[
-                [_close, "hi3", "lo3", "clg", "flr", "rg_ch", 'rt', "rg", 'hi2_lag', 'hi3_lag', 'lo2_lag', 'lo3_lag']
-            ]
+            _d[[_close, "hi3", "lo3", "clg", "flr", "rg_ch", "rg", 'hi2_lag', 'hi3_lag', 'lo2_lag', 'lo3_lag']]
                 .iloc[_plot_window:]
                 .plot(
-                    style=["grey", "ro", "go", "kv", "k^", "c:", 'k.'],
+                    style=["grey", "ro", "go", "kv", "k^", "c:"],
                     figsize=(15, 5),
                     secondary_y=["rg"],
                     # grid=True,
@@ -200,9 +200,9 @@ def rolling_plot(
         d.at[idx] = row
         try:
             res = sfcr.fc_scale_strategy(d)
-            rt_copy = d.rt.copy()
+            # rt_copy = d.rt.copy()
             d = res.enhanced_price_data
-            d.rt.loc[pd.notna(rt_copy)] = rt_copy.loc[pd.notna(rt_copy)]
+            # d.rt.loc[pd.notna(rt_copy)] = rt_copy.loc[pd.notna(rt_copy)]
 
             if fp_rg is None:
                 fp_rg = d.rg.copy()
@@ -213,14 +213,14 @@ def rolling_plot(
                 lo3_lag = d.lo3.copy()
             else:
                 fp_rg = fp_rg.reindex(d.rg.index)
-                new_val = d.rg.loc[pd.isna(fp_rg)][0]
-                fp_rg.loc[idx] = new_val
+                fp_rg.iloc[-1] = d.rg.iloc[-1]
                 hi2_lag = sfcr.update_sw_lag(hi2_lag, d.hi2, hi2_discovery_dts)
                 hi3_lag = sfcr.update_sw_lag(hi3_lag, d.hi3, hi3_discovery_dts)
                 lo2_lag = sfcr.update_sw_lag(lo2_lag, d.lo2, lo2_discovery_dts)
                 lo3_lag = sfcr.update_sw_lag(lo3_lag, d.lo3, lo3_discovery_dts)
 
-        except (KeyError, AttributeError):
+        except (KeyError, src.utils.regime.NotEnoughDataError, src.floor_ceiling_regime.NoEntriesError):
+            print(f"iter index {num}")
             pass
         else:
             pass
@@ -228,6 +228,7 @@ def rolling_plot(
             try:
                 if plot_loop is True:
                     data_plot_window = len(d.index) - plot_window
+                    data_plot_window = data_plot_window if data_plot_window >= 0 else 0
                     if new_axis is False:
                         plt.gca().cla()
                         axis.clear()
@@ -275,14 +276,14 @@ def rolling_plot(
     if plot_loop is True:
         plt.close()
 
-    a = ndf[[_close, "hi3", "lo3", "clg", "flr", "rg_ch"]].plot(
+    a = d[[_close, "hi3", "lo3", "clg", "flr", "rg_ch"]].plot(
         style=["grey", "ro", "go", "kv", "k^", "c:"],
         figsize=(15, 5),
         # grid=True,
         title=str.upper(ticker),
         use_index=use_index,
     )
-    ndf["rg"].plot(
+    d["rg"].plot(
         style=["b-."],
         # figsize=(15, 5),
         # marker='o',
