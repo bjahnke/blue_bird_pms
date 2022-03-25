@@ -138,7 +138,7 @@ def hilo_alternation(hilo, dist=None, hurdle=None):
         return hilo
 
 
-def historical_swings(df, _o, _h, _l, _c, round_place=2):
+def historical_swings(df, _o='open', _h='high', _l='low', _c='close', round_place=2, lvl_limit=9):
     reduction = df[[_o, _h, _l, _c]].copy()
 
     reduction["avg_px"] = round(reduction[[_h, _l, _c]].mean(axis=1), round_place)
@@ -179,7 +179,7 @@ def historical_swings(df, _o, _h, _l, _c, round_place=2):
         highs = reduction[hi_lvl_col].values
         lows = -reduction[lo_lvl_col].values
 
-        if n >= 9:
+        if n >= lvl_limit:
             break
 
     return df
@@ -229,7 +229,7 @@ def cleanup_latest_swing(df, shi, slo, rt_hi, rt_lo):
     return df
 
 
-def latest_swing_variables(df, shi, slo, rt_hi, rt_lo, _h, _l, _c):
+def latest_swing_variables(df, shi, slo, rt_hi, rt_lo, _h='high', _l='low', _c='close'):
     """
 
     :param df:
@@ -244,15 +244,19 @@ def latest_swing_variables(df, shi, slo, rt_hi, rt_lo, _h, _l, _c):
     """
     try:
         # get that latest swing hi/lo dates
-        shi_dt = df.loc[pd.notnull(df[shi]), shi].index[-1]
-        slo_dt = df.loc[pd.notnull(df[slo]), slo].index[-1]
+        shi_query = pd.notnull(df[shi])
+        slo_query = pd.notnull(df[slo])
 
-        s_hi = df.loc[pd.notnull(df[shi]), shi][-1]
-        s_lo = df.loc[pd.notnull(df[slo]), slo][-1]
+        shi_dt = df.loc[shi_query, shi].index[-1]
+        slo_dt = df.loc[slo_query, slo].index[-1]
+
+        s_hi = df.loc[shi_query, shi][-1]
+        s_lo = df.loc[slo_query, slo][-1]
     except IndexError:
         raise NotEnoughDataError
 
     if slo_dt > shi_dt:
+        # swing low date is more recent
         swg_var = [
             1,
             s_lo,
@@ -261,6 +265,7 @@ def latest_swing_variables(df, shi, slo, rt_hi, rt_lo, _h, _l, _c):
             shi,
             df.loc[slo_dt:, _h].max(),
             df.loc[slo_dt:, _h].idxmax(),
+            'high'
         ]
     elif shi_dt > slo_dt:
         swg_var = [
@@ -271,6 +276,7 @@ def latest_swing_variables(df, shi, slo, rt_hi, rt_lo, _h, _l, _c):
             slo,
             df.loc[shi_dt:, _l].min(),
             df.loc[shi_dt:, _l].idxmin(),
+            'low'
         ]
     else:
         swg_var = [0] * 7
@@ -278,11 +284,10 @@ def latest_swing_variables(df, shi, slo, rt_hi, rt_lo, _h, _l, _c):
     return swg_var
 
 
-def test_distance(ud, bs, hh_ll, dist_vol, dist_pct):
+def test_distance(base_sw_val, hh_ll, dist_vol, dist_pct):
     """
-
     :param ud: direction
-    :param bs: base, swing hi/lo
+    :param base_sw_val: base, swing hi/lo
     :param hh_ll: lowest low or highest high
     :param dist_vol:
     :param dist_pct:
@@ -290,21 +295,20 @@ def test_distance(ud, bs, hh_ll, dist_vol, dist_pct):
     """
     # priority: 1. Vol 2. pct 3. dflt
     if dist_vol > 0:
-        distance_test = np.sign(abs(hh_ll - bs) - dist_vol)
+        distance_test = np.sign(abs(hh_ll - base_sw_val) - dist_vol)
     elif dist_pct > 0:
-        distance_test = np.sign(abs(hh_ll / bs - 1) - dist_pct)
+        distance_test = np.sign(abs(hh_ll / base_sw_val - 1) - dist_pct)
     else:
         distance_test = np.sign(dist_pct)
-
-    return int(max(distance_test, 0) * ud)
+    return distance_test > 0
 
 
 def average_true_range(
         df: pd.DataFrame,
-        _h: str,
-        _l: str,
-        _c: str,
-        window: int
+        window: int,
+        _h: str = 'high',
+        _l: str = 'low',
+        _c: str = 'close',
 ):
     """
     http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:average_true_range_atr
@@ -317,16 +321,22 @@ def average_true_range(
 
 def retest_swing(
         df,
-        _sign: int,
+        ud: int,
         _rt,
         hh_ll_dt: pd.Timestamp,
         hh_ll: float,
-        _c: str,
-        _swg
+        _swg: str,
+        idx_extreme_f: str,
+        extreme_f: str,
+        cum_extreme_f: str,
+        _c: str = 'close',
 ):
     """
+    :param ud:
+    :param cum_extreme_f:
+    :param extreme_f:
+    :param idx_extreme_f:
     :param df:
-    :param _sign:
     :param _rt:
     :param hh_ll_dt: date of hh_ll
     :param hh_ll: lowest low or highest high
@@ -335,61 +345,86 @@ def retest_swing(
     :return:
     """
     rt_sgmt = df.loc[hh_ll_dt:, _rt]
+    discovery_lag = None
 
-    if (rt_sgmt.count() > 0) & (_sign != 0):  # Retests exist and distance test met
-        if _sign == 1:  #
-            rt_list = [
-                rt_sgmt.idxmax(),
-                rt_sgmt.max(),
-                df.loc[rt_sgmt.idxmax():, _c].cummin(),
-            ]
+    if rt_sgmt.count() > 0:  # Retests exist and distance test met
+        rt_dt = getattr(rt_sgmt, idx_extreme_f)()
+        rt_hurdle = getattr(rt_sgmt, extreme_f)()
+        rt_px = getattr(df.loc[rt_dt:, _c], cum_extreme_f)()
+        df.loc[rt_dt, "rt"] = rt_hurdle
 
-        elif _sign == -1:
-            rt_list = [
-                rt_sgmt.idxmin(),
-                rt_sgmt.min(),
-                df.loc[rt_sgmt.idxmin():, _c].cummax(),
-            ]
-        rt_dt, rt_hurdle, rt_px = [rt_list[h] for h in range(len(rt_list))]
+        breach_query = (np.sign(rt_px - rt_hurdle) == -np.sign(ud))
+        discovery_lag = rt_sgmt.loc[breach_query].first_valid_index()
 
-        if str(_c)[0] == "r":
-            df.loc[rt_dt, "rrt"] = rt_hurdle
-        elif str(_c)[0] != "r":
-            df.loc[rt_dt, "rt"] = rt_hurdle
-
-        if (np.sign(rt_px - rt_hurdle) == -np.sign(_sign)).any():
+        if discovery_lag is not None:
             df.at[hh_ll_dt, _swg] = hh_ll
-    return df
+
+    return df, discovery_lag
 
 
 def retrace_swing(
-        df, _sign, _swg, _c, hh_ll_dt, hh_ll, vlty, retrace_vol, retrace_pct
+        df,
+        ud,
+        _swg,
+        hh_ll_dt,
+        hh_ll,
+        vlty,
+        retrace_vol,
+        retrace_pct,
+        _c='close'
 ):
-    if _sign == 1:  #
-        retrace = df.loc[hh_ll_dt:, _c].min() - hh_ll
+    if ud == 1:
+        extreme_f = 'min'
+        extreme_idx_f = 'idxmin'
 
-        if (
-                (vlty > 0)
-                & (retrace_vol > 0)
-                & ((abs(retrace / vlty) - retrace_vol) > 0)
-        ):
-            df.at[hh_ll_dt, _swg] = hh_ll
-        elif (retrace_pct > 0) & ((abs(retrace / hh_ll) - retrace_pct) > 0):
-            df.at[hh_ll_dt, _swg] = hh_ll
-
-    elif _sign == -1:
-        retrace = df.loc[hh_ll_dt:, _c].max() - hh_ll
-        if (
-                (vlty > 0)
-                & (retrace_vol > 0)
-                & ((round(retrace / vlty, 1) - retrace_vol) > 0)
-        ):
-            df.at[hh_ll_dt, _swg] = hh_ll
-        elif (retrace_pct > 0) & ((round(retrace / hh_ll, 4) - retrace_pct) > 0):
-            df.at[hh_ll_dt, _swg] = hh_ll
+        def f(divisor, _):
+            return abs(retrace / divisor)
+    # else ub assumed to be -1
     else:
-        retrace = 0
-    return df
+        extreme_f = 'max'
+        extreme_idx_f = 'idxmax'
+
+        def f(divisor, round_val):
+            return round(retrace / divisor, round_val)
+
+    data_range = df.loc[hh_ll_dt:, _c]
+    retrace = getattr(data_range, extreme_f)() - hh_ll
+    discovery_lag = None
+
+    if (
+        vlty > 0 and
+        retrace_vol > 0 and
+        f(vlty, 1) - retrace_vol > 0 or
+        retrace_pct > 0 and
+        f(hh_ll, 4) - retrace_pct > 0
+    ):
+        discovery_lag = getattr(data_range, extreme_idx_f)()
+        df.at[hh_ll_dt, _swg] = hh_ll
+
+    # if _sign == 1:  #
+    #     retrace = df.loc[hh_ll_dt:, _c].min() - hh_ll
+    #     if (
+    #             (vlty > 0)
+    #             & (retrace_vol > 0)
+    #             & ((abs(retrace / vlty) - retrace_vol) > 0)
+    #     ):
+    #         df.at[hh_ll_dt, _swg] = hh_ll
+    #     elif (retrace_pct > 0) & ((abs(retrace / hh_ll) - retrace_pct) > 0):
+    #         df.at[hh_ll_dt, _swg] = hh_ll
+    #
+    # elif _sign == -1:
+    #     retrace = df.loc[hh_ll_dt:, _c].max() - hh_ll
+    #     if (
+    #             (vlty > 0)
+    #             & (retrace_vol > 0)
+    #             & ((round(retrace / vlty, 1) - retrace_vol) > 0)
+    #     ):
+    #         df.at[hh_ll_dt, _swg] = hh_ll
+    #     elif (retrace_pct > 0) & ((round(retrace / hh_ll, 4) - retrace_pct) > 0):
+    #         df.at[hh_ll_dt, _swg] = hh_ll
+    # else:
+    #     retrace = 0
+    return df, discovery_lag
 
 
 def relative(
@@ -472,42 +507,180 @@ def relative_all_rebase(df, bm_close, axis):
     return df.div(bm_close * df.iloc[0], axis=axis) * bm_close[0]
 
 
+class LatestSwingData:
+    def __init__(
+            self,
+            ud,  # direction +1up, -1down
+            base_sw,  # base, swing hi/lo
+            bs_dt,  # swing date
+            _rt,  # series name used to detect swing, rt_lo for swing hi, rt_hi for swing lo
+            sw_col,  # series to assign the value, shi for swing hi, slo for swing lo
+            hh_ll,  # lowest low or highest high
+            hh_ll_dt,  # date of hh_ll
+            price_col,
+    ):
+        self.ud = ud
+
+        if self.ud == 1:
+            extreme = 'max'
+            cum_extreme = 'min'
+        else:
+            extreme = 'min'
+            cum_extreme = 'max'
+
+        self.idx_extreme_f = f'idx{extreme}'
+        self.extreme_f = f'{extreme}'
+        self.cum_extreme_f = f'cum{cum_extreme}'
+
+        self.base_sw = base_sw
+        self.bs_dt = bs_dt
+        self.rt = _rt
+        self.sw_col = sw_col
+        self.extreme_val = hh_ll
+        self.extreme_date = hh_ll_dt
+        self.price_col = price_col
+
+    @classmethod
+    def init_from_latest_swing(cls, df, shi, slo, rt_hi, rt_lo, _h='high', _l='low', _c='close'):
+        shi_query = pd.notnull(df[shi])
+        slo_query = pd.notnull(df[slo])
+        try:
+            # get that latest swing hi/lo dates
+            sw_hi_date = df.loc[shi_query, shi].index[-1]
+            sw_lo_date = df.loc[slo_query, slo].index[-1]
+        except IndexError:
+            raise NotEnoughDataError
+
+        if sw_lo_date > sw_hi_date:
+            # swing low date is more recent
+            s_lo = df.loc[slo_query, slo][-1]
+            swg_var = cls(
+                ud=1,
+                base_sw=s_lo,
+                bs_dt=sw_lo_date,
+                _rt=rt_lo,
+                sw_col=shi,
+                hh_ll=df.loc[sw_lo_date:, _h].max(),
+                hh_ll_dt=df.loc[sw_lo_date:, _h].idxmax(),
+                price_col='high'
+            )
+        #  (shi_dt > slo_dt) assuming that shi_dt == slo_dt is impossible
+        else:
+            s_hi = df.loc[shi_query, shi][-1]
+            swg_var = cls(
+                ud=-1,
+                base_sw=s_hi,
+                bs_dt=sw_hi_date,
+                _rt=rt_hi,
+                sw_col=slo,
+                hh_ll=df.loc[sw_hi_date:, _l].min(),
+                hh_ll_dt=df.loc[sw_hi_date:, _l].idxmin(),
+                price_col='low'
+            )
+        return swg_var
+
+    def test_distance(self, dist_vol, dist_pct):
+        return test_distance(
+            base_sw_val=self.base_sw,
+            hh_ll=self.extreme_val,
+            dist_vol=dist_vol,
+            dist_pct=dist_pct
+        )
+
+    def retest_swing(self, df):
+        return retest_swing(
+            df=df,
+            ud=self.ud,
+            _rt=self.rt,
+            hh_ll_dt=self.extreme_date,
+            hh_ll=self.extreme_val,
+            _swg=self.sw_col,
+            idx_extreme_f=self.idx_extreme_f,
+            extreme_f=self.extreme_f,
+            cum_extreme_f=self.cum_extreme_f
+        )
+
+    def retrace_swing(self, df, vlty, retrace_vol, retrace_pct):
+        return retrace_swing(
+            df=df,
+            ud=self.ud,
+            _swg=self.sw_col,
+            hh_ll_dt=self.extreme_date,
+            hh_ll=self.extreme_val,
+            vlty=vlty,
+            retrace_vol=retrace_vol,
+            retrace_pct=retrace_pct,
+        )
+
+    def volatility_swing(self, df, dist_pct, vlty, retrace_pct, retrace_vol_mult=2.5, dist_vol_mult=5):
+        """detect last swing via volatility test"""
+        dist_vol = vlty * dist_vol_mult
+        res = self.test_distance(dist_vol, dist_pct)
+        if res is True:
+            retrace_vol = vlty * retrace_vol_mult
+            df = self.retest_swing(df)
+            df = self.retrace_swing(df, vlty=vlty, retrace_vol=retrace_vol, retrace_pct=retrace_pct)
+        return df
+
+
 def init_swings(
         df: pd.DataFrame,
         dist_pct: float,
         retrace_pct: float,
         n_num: int,
         lvl=3,
+        lvl_limit=3,
 ):
-    _o, _h, _l, _c = lower_upper_ohlc(df)
+    _o, _h, _l, _c = ['open', 'high', 'low', 'close']
     shi = f'hi{lvl}'
     slo = f'lo{lvl}'
     rt_hi = 'hi1'
     rt_lo = 'lo1'
 
-    df = historical_swings(df, _o=_o, _h=_h, _l=_l, _c=_c)
-    # df = cleanup_latest_swing(df, shi=shi, slo=slo, rt_hi=rt_hi, rt_lo=rt_lo)
+    df = historical_swings(df, lvl_limit=lvl_limit)
+    df = cleanup_latest_swing(df, shi=shi, slo=slo, rt_hi=rt_hi, rt_lo=rt_lo)
 
-    (
-        ud,  # direction +1up, -1down
-        bs,  # base, swing hi/lo
-        bs_dt,  # swing date
-        _rt,  # series name used to detect swing, rt_lo for swing hi, rt_hi for swing lo
-        _swg,  # series to assign the value, shi for swing hi, slo for swing lo
-        hh_ll,  # lowest low or highest high
-        hh_ll_dt  # date of hh_ll
-    ) = latest_swing_variables(
-        df, shi, slo, rt_hi, rt_lo, _h, _l, _c
-    )
-    # volatility_series = average_true_range(df=df, _h=_h, _l=_l, _c=_c, window=n_num)
-    # vlty = round(volatility_series[hh_ll_dt], 2)
-    # dist_vol = 5 * vlty
+    latest_sw_vars = LatestSwingData.init_from_latest_swing(df, shi, slo, rt_hi, rt_lo)
 
-    # _sign = test_distance(ud, bs, hh_ll, dist_vol, dist_pct)
-    # df = retest_swing(df, _sign, _rt, hh_ll_dt, hh_ll, _c, _swg)
-    # retrace_vol = 2.5 * vlty
-    # df = retrace_swing(df, _sign, _swg, _c, hh_ll_dt, hh_ll, vlty, retrace_vol, retrace_pct)
-    return df
+    volatility_series = average_true_range(df=df, window=n_num)
+    _dist_vol_series = volatility_series * 5
+    _retrace_vol_series = volatility_series * 2.5
+    vlty = round(volatility_series[latest_sw_vars.extreme_date], 2)
+
+    # px = df.loc[bs_dt: hh_ll_dt, price_col]
+    # vol = _dist_vol_series.loc[bs_dt: hh_ll_dt]
+    # _df = pd.DataFrame()
+    # diff = np.sign(abs(px - base_sw) - vol)
+    # _df['diff'] = diff
+    # _df.diff = _df.loc[(_df.diff > 0)]
+    # diff = np.where(diff > 0, 1, 0) * ud
+    # vol_lvl = base_sw - vol
+    # _t = pd.DataFrame({
+    #     price_col: px,
+    #     'vlty_test': diff,
+    #     'vol_lvl': vol_lvl
+    # })
+    # _t['base'] = base_sw
+    discovery_lag = None
+    dist_vol = vlty * 5
+    res = latest_sw_vars.test_distance(dist_vol, dist_pct)
+    if res is True:
+        retrace_vol = vlty * 2.5
+        df, retest_swing_lag = latest_sw_vars.retest_swing(df)
+        df, retrace_swing_lag = latest_sw_vars.retrace_swing(
+            df, vlty=vlty, retrace_vol=retrace_vol, retrace_pct=retrace_pct
+        )
+        lag_compare = []
+        if retest_swing_lag is not None:
+            lag_compare.append(retest_swing_lag)
+
+        if retrace_swing_lag is None:
+            lag_compare.append(retrace_swing_lag)
+
+        if len(lag_compare) > 0:
+            discovery_lag = np.maximum(*lag_compare)
+
+    return df, discovery_lag
 
 
 @dataclass
@@ -522,6 +695,37 @@ class RegimeFcLists:
         self.fc_dates.append(data['extreme_date'])
         self.rg_ch_dates.append(data['swing_date'])
         self.rg_ch_vals.append(data['swing_val'])
+
+
+def plot(_d, _plot_window=0, _use_index=False, axis=None):
+    """"""
+    cols = [
+        'close',
+        "hi3",
+        "lo3",
+        # "clg",
+        # "flr",
+        # "rg_ch",
+        "rg",
+        # 'hi2_lag',
+        # 'hi3_lag',
+        # 'lo2_lag',
+        # 'lo3_lag'
+    ]
+    _axis = (
+        _d[cols]
+            .iloc[_plot_window:]
+            .plot(
+                style=["grey", "ro", "go"],  # "kv", "k^", "c:"],
+                figsize=(15, 5),
+                secondary_y=["rg"],
+                # grid=True,
+                # title=str.upper(_ticker),
+                use_index=_use_index,
+                ax=axis
+            )
+    )
+    return _axis
 
 
 def regime_floor_ceiling(
@@ -540,6 +744,10 @@ def regime_floor_ceiling(
 ):
     shi = f"hi{sw_lvl}"
     slo = f"lo{sw_lvl}"
+
+    _peak_table = peak_table.loc[peak_table.lvl == sw_lvl]
+    _sw_hi_peak_table = _peak_table.loc[_peak_table.type == -1]
+    _sw_lo_peak_table = _peak_table.loc[_peak_table.type == 1]
 
     # Lists instantiation
     threshold_test, rg_ch_ix_list, rg_ch_list = [], [], []
@@ -580,39 +788,45 @@ def regime_floor_ceiling(
         s_hi_ix = swing_highs_ix[_hi_i]
         s_hi = swing_highs[_hi_i]
 
-        _swing_max_ix = np.maximum(s_lo_ix, s_hi_ix)  # latest swing index
+        _s_lo_discovery = _sw_lo_peak_table.end.loc[_sw_lo_peak_table.start == s_lo_ix].iloc[0]
+        _s_hi_discovery = _sw_hi_peak_table.end.loc[_sw_hi_peak_table.start == s_hi_ix].iloc[0]
+        swing_discovery_date = np.maximum(_s_lo_discovery, _s_hi_discovery)  # latest swing index
 
-        swing_discovery_date = peak_table.loc[
-            (peak_table.lvl == sw_lvl) &
-            # (peak_table.type == 1) &
-            (peak_table.start == _swing_max_ix),
-            'end'
-        ]
-        swing_discovery_date = swing_discovery_date.iloc[0]
+        # swing_discovery_date = peak_table.loc[
+        #     (peak_table.lvl == sw_lvl) &
+        #     # (peak_table.type == 1) &
+        #     (peak_table.start == _swing_max_ix),
+        #     'end'
+        # ]
+        # swing_discovery_date = swing_discovery_date.iloc[0]
 
         # CLASSIC CEILING DISCOVERY
         if ceiling_found is False:
             # Classic ceiling test
-            res = find_fc(
-                df,
-                fc_ix_list=floor_ix_list,
-                latest_swing_ix=s_hi_ix,
-                latest_swing_val=s_hi,
-                price_col=_h,
-                extreme_func='max',
-                stdev=stdev,
-                sw_type=-1,
-                threshold=threshold
-            )
-            if len(res) > 0:
-                # Boolean flags reset
-                ceiling_found = True
-                floor_found = breakdown = breakout = False
-                # Append lists
-                ceiling_lists.update(res)
-                fc_data = pd.concat([fc_data, pd.DataFrame(data=res, index=[len(fc_data)])])
+            try:
+                res = find_fc(
+                    df,
+                    fc_ix=floor_ix_list[-1],
+                    latest_swing_ix=_s_hi_discovery,
+                    latest_swing_val=s_hi,
+                    price_col=_h,
+                    extreme_func='max',
+                    stdev=stdev,
+                    sw_type=-1,
+                    threshold=threshold
+                )
+            except IndexError:
+                print('ceiling index error')
+            else:
+                if len(res) > 0:
+                    # Boolean flags reset
+                    ceiling_found = True
+                    floor_found = breakdown = breakout = False
+                    # Append lists
+                    ceiling_lists.update(res)
+                    fc_data = pd.concat([fc_data, pd.DataFrame(data=res, index=[len(fc_data)])])
 
-                # EXCEPTION HANDLING: price penetrates discovery swing
+                    # EXCEPTION HANDLING: price penetrates discovery swing
         # 1. if ceiling found, calculate regime since rg_ch_ix using close.cummin
         elif ceiling_found is True:
             res, df = fc_found(
@@ -642,23 +856,27 @@ def regime_floor_ceiling(
         # CLASSIC FLOOR DISCOVERY
         if floor_found is False:
             # Classic floor test
-            res = find_fc(
-                df=df,
-                fc_ix_list=ceiling_ix_list,
-                latest_swing_ix=s_lo_ix,
-                latest_swing_val=s_lo,
-                price_col=_l,
-                extreme_func='min',
-                stdev=stdev,
-                sw_type=1,
-                threshold=threshold
-            )
-            if len(res) > 0:
-                # Boolean flags reset
-                floor_found = True
-                ceiling_found = breakdown = breakout = False
-                floor_lists.update(res)
-                fc_data = pd.concat([fc_data, pd.DataFrame(data=res, index=[len(fc_data)])])
+            try:
+                res = find_fc(
+                    df=df,
+                    fc_ix=ceiling_ix_list[-1],
+                    latest_swing_ix=_s_lo_discovery,
+                    latest_swing_val=s_lo,
+                    price_col=_l,
+                    extreme_func='min',
+                    stdev=stdev,
+                    sw_type=1,
+                    threshold=threshold
+                )
+            except IndexError:
+                print('floor index error')
+            else:
+                if len(res) > 0:
+                    # Boolean flags reset
+                    floor_found = True
+                    ceiling_found = breakdown = breakout = False
+                    floor_lists.update(res)
+                    fc_data = pd.concat([fc_data, pd.DataFrame(data=res, index=[len(fc_data)])])
 
         # EXCEPTION HANDLING: price penetrates discovery swing
         # 1. if floor found, calculate regime since rg_ch_ix using close.cummin
@@ -707,7 +925,8 @@ def regime_floor_ceiling(
             np.where(
                 floor_found,  # if floor found, lowest low since rg_ch_ix
                 np.sign(df[swing_discovery_date:][_c].cummin() - rg_ch_list[-1]),
-                np.sign(df[swing_discovery_date:][_c].rolling(5).mean() - rg_ch_list[-1]),
+                # np.sign(df[swing_discovery_date:][_c].rolling(5).mean() - rg_ch_list[-1]),
+                np.nan
             ),
         )
         df[rg] = df[rg].fillna(method="ffill")
@@ -717,7 +936,7 @@ def regime_floor_ceiling(
 
 def find_fc(
         df,
-        fc_ix_list: t.List[pd.Timestamp],
+        fc_ix: pd.Timestamp,
         latest_swing_ix: pd.Timestamp,
         latest_swing_val: float,
         price_col: str,
@@ -730,6 +949,7 @@ def find_fc(
     tests to find a new fc between the last opposite fc and current swing.
     New fc found if the distance from the most extreme to the latest swing
     meets the minimum threshold
+    :param fc_ix:
     :param df:
     :param fc_ix_list:
     :param latest_swing_ix:
@@ -741,7 +961,7 @@ def find_fc(
     :param threshold:
     :return:
     """
-    data_range = df.loc[fc_ix_list[-1]: latest_swing_ix, price_col]
+    data_range = df.loc[fc_ix: latest_swing_ix, price_col]
     extreme_rows = data_range.loc[data_range == getattr(data_range, extreme_func)()]
     extreme = extreme_rows.iloc[0]
     extreme_ix = extreme_rows.index[0]

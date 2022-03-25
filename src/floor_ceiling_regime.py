@@ -604,7 +604,7 @@ def init_peak_table(
     price_data: pd.DataFrame, distance_pct, retrace_pct, swing_window, sw_lvl
 ):
     """initialization of peak table bundled together"""
-    swings = src.utils.regime.init_swings(
+    swings, final_discovery_lag = src.utils.regime.init_swings(
         df=price_data,
         dist_pct=distance_pct,
         retrace_pct=retrace_pct,
@@ -614,7 +614,15 @@ def init_peak_table(
 
     hi_peak_table = full_peak_lag(swings, ["hi1", "hi2", "hi3"])
     lo_peak_table = full_peak_lag(swings, ["lo1", "lo2", "lo3"])
-    return pd.concat([hi_peak_table, lo_peak_table]).reset_index(drop=True), swings
+    peak_table = pd.concat([hi_peak_table, lo_peak_table]).reset_index(drop=True)
+    if final_discovery_lag is not None:
+        null_query = pd.isnull(peak_table.end)
+        if null_query.sum() == 1:
+            peak_table.loc[null_query, 'end'] = final_discovery_lag
+        else:
+            raise Exception('Only expect to fill one swing')
+
+    return peak_table, swings
 
 
 def init_regime_table(

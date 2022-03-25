@@ -77,6 +77,37 @@ def enhanced_price_data_plot(data, ax=None):
     )
 
 
+def plot(_d, _plot_window=0, _use_index=False, _axis=None, _ticker=None):
+    """"""
+    cols = [
+        'close',
+        "hi3",
+        "lo3",
+        "clg",
+        "flr",
+        "rg_ch",
+        "rg",
+        'hi2_lag',
+        'hi3_lag',
+        'lo2_lag',
+        'lo3_lag'
+    ]
+    _axis = (
+        _d[cols]
+            .iloc[_plot_window:]
+            .plot(
+                style=["grey", "ro", "go", "kv", "k^", "c:"],
+                figsize=(15, 5),
+                secondary_y=["rg"],
+                # grid=True,
+                # title=str.upper(_ticker),
+                use_index=_use_index,
+                ax=_axis
+            )
+    )
+    return _axis
+
+
 def rolling_plot(
     price_data: pd.DataFrame,
     ndf,
@@ -97,7 +128,7 @@ def rolling_plot(
     _low = "low"
     _close = "close"
     use_index = False
-    initial_size = 175
+    initial_size = 200  # 386
     plot_window = 250
     axis = None
     index = initial_size
@@ -175,22 +206,6 @@ def rolling_plot(
 
     """
 
-    def plot(_ticker, _d, _plot_window, _use_index, _axis=None):
-        _axis = (
-            _d[[_close, "hi3", "lo3", "clg", "flr", "rg_ch", "rg", 'hi2_lag', 'hi3_lag', 'lo2_lag', 'lo3_lag']]
-                .iloc[_plot_window:]
-                .plot(
-                    style=["grey", "ro", "go", "kv", "k^", "c:"],
-                    figsize=(15, 5),
-                    secondary_y=["rg"],
-                    # grid=True,
-                    title=str.upper(_ticker),
-                    use_index=_use_index,
-                    ax=axis
-                )
-        )
-        return _axis
-
     new_axis = True
 
     for idx, row in ndf.iterrows():
@@ -219,11 +234,10 @@ def rolling_plot(
                 lo2_lag = sfcr.update_sw_lag(lo2_lag, d.lo2, lo2_discovery_dts)
                 lo3_lag = sfcr.update_sw_lag(lo3_lag, d.lo3, lo3_discovery_dts)
 
-        except (KeyError, src.utils.regime.NotEnoughDataError, src.floor_ceiling_regime.NoEntriesError):
+        except (KeyError, IndexError, src.utils.regime.NotEnoughDataError, src.floor_ceiling_regime.NoEntriesError):
             print(f"iter index {num}")
             pass
         else:
-            pass
             # live print procedure
             try:
                 if plot_loop is True:

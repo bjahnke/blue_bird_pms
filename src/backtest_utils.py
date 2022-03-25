@@ -217,5 +217,5 @@ def main_roll_scan():
 
 
 if __name__ == '__main__':
-    main_roll_scan()
+    run_backtest()
 
