@@ -8,8 +8,8 @@ import typing as t
 
 import src.utils.regime
 import src.utils.regime as regime
-from src.pd_accessors import PriceTable
-import src.pd_accessors as pda
+from src.utils.pd_accessors import PriceTable
+import src.utils.pd_accessors as pda
 
 
 class StockDataGetter:
@@ -85,18 +85,21 @@ def plot(_d, _plot_window=0, _use_index=False, _axis=None, _ticker=None):
         "lo3",
         "clg",
         "flr",
-        "rg_ch",
+        # "rg_ch",
         "rg",
         'hi2_lag',
         'hi3_lag',
         'lo2_lag',
-        'lo3_lag'
+        'lo3_lag',
     ]
+    style = ["grey", "ro", "go", "kv", "k^"]
+    # if _axis is None:
+    #     figure, _axis = plt.subplots(2, 1)
     _axis = (
         _d[cols]
             .iloc[_plot_window:]
             .plot(
-                style=["grey", "ro", "go", "kv", "k^", "c:"],
+                style=style,
                 figsize=(15, 5),
                 secondary_y=["rg"],
                 # grid=True,
@@ -105,6 +108,7 @@ def plot(_d, _plot_window=0, _use_index=False, _axis=None, _ticker=None):
                 ax=_axis
             )
     )
+
     return _axis
 
 

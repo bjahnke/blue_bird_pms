@@ -2,14 +2,12 @@
 this module contains code which ties all aspects of strategy together into a functional model
 """
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
 import typing as t
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 
-import yfinance as yf
-import src.pd_accessors as pda
+import src.utils.pd_accessors as pda
 from src.utils import trading_stats as ts, regime
 import src.utils.regime
 import src.money_management as mm
@@ -415,6 +413,7 @@ def process_signal_data(
     price_data: pd.DataFrame,
     regimes: pd.DataFrame,
     entry_candidates: pd.DataFrame,
+    peak_table: pd.DataFrame,
     offset_pct=0.01,
     r_multiplier=1.5,
 ) -> t.Tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
@@ -447,13 +446,35 @@ def process_signal_data(
         # next candidate must be higher/lower than prev entry price depending on regime
         while True:
             rg_price_data = price_data.loc[start:end]
+            rg_peak_table = peak_table.loc[
+                (peak_table.end >= rg_info.start) &
+                (peak_table.end < rg_info.end) &
+                (peak_table.lvl == 3) &
+                (peak_table.type == rg_info.rg)
+            ]
 
             rg_entry_candidates = entry_candidates.loc[
                 pda.date_slice(start, end, entry_candidates.entry)
             ]
+            if rg_entry_candidates.empty:
+                break
             try:
+                # filter for entries that are less than the previous entry
+                # or less than the previous level 3 swing
                 entry_prices = price_data.loc[rg_entry_candidates.entry, "close"]
-                entry_query = ((entry_prices.values - entry_price) * rg_info.rg) > 0
+                _after_entry = rg_peak_table.end > entry_signal.entry
+                _before_next_entry = rg_peak_table.end < rg_entry_candidates.iloc[0].entry
+                last_lvl3_peak = rg_peak_table.loc[_after_entry & _before_next_entry]
+                if not last_lvl3_peak.empty:
+                    last_lvl3_peak = last_lvl3_peak.iloc[-1]
+                    lvl3_price = price_data.loc[last_lvl3_peak.start, 'close']
+                    if entry_signal.entry < last_lvl3_peak.end and (entry_price - lvl3_price) * rg_info.rg > 0:
+                        entry_price = lvl3_price
+
+                entry_query = (
+                    ((entry_prices.values - entry_price) * rg_info.rg) > 0
+                )
+
                 rg_entry_candidates = rg_entry_candidates.loc[entry_query]
             except NameError:
                 pass
@@ -604,7 +625,7 @@ def init_peak_table(
     price_data: pd.DataFrame, distance_pct, retrace_pct, swing_window, sw_lvl
 ):
     """initialization of peak table bundled together"""
-    swings, final_discovery_lag = src.utils.regime.init_swings(
+    swings, peak_table = src.utils.regime.init_swings(
         df=price_data,
         dist_pct=distance_pct,
         retrace_pct=retrace_pct,
@@ -612,15 +633,15 @@ def init_peak_table(
         lvl=sw_lvl,
     )
 
-    hi_peak_table = full_peak_lag(swings, ["hi1", "hi2", "hi3"])
-    lo_peak_table = full_peak_lag(swings, ["lo1", "lo2", "lo3"])
-    peak_table = pd.concat([hi_peak_table, lo_peak_table]).reset_index(drop=True)
-    if final_discovery_lag is not None:
-        null_query = pd.isnull(peak_table.end)
-        if null_query.sum() == 1:
-            peak_table.loc[null_query, 'end'] = final_discovery_lag
-        else:
-            raise Exception('Only expect to fill one swing')
+    # hi_peak_table = full_peak_lag(swings, ["hi1", "hi2", "hi3"])
+    # lo_peak_table = full_peak_lag(swings, ["lo1", "lo2", "lo3"])
+    # peak_table = pd.concat([hi_peak_table, lo_peak_table]).reset_index(drop=True)
+    # if final_discovery_lag is not None:
+    #     null_query = pd.isnull(peak_table.end)
+    #     if null_query.sum() == 1:
+    #         peak_table.loc[null_query, 'end'] = final_discovery_lag
+    #     else:
+    #         raise Exception('Only expect to fill one swing')
 
     return peak_table, swings
 
@@ -665,6 +686,7 @@ def init_signal_stop_loss_tables(
         price_data,
         regime_table,
         raw_signals,
+        peak_table,
         offset_pct=offset_pct,
         r_multiplier=r_multiplier,
     )
@@ -811,9 +833,9 @@ def calc_stats(
 
 def expand_index(gap_data, full_index):
     try:
-        expanded_idx = gap_data.__class__(index=full_index, columns=gap_data.columns)
+        expanded_idx = gap_data.__class__(index=full_index, columns=gap_data.columns, dtype='float64')
     except AttributeError:
-        expanded_idx = gap_data.__class__(index=full_index)
+        expanded_idx = gap_data.__class__(index=full_index, dtype='float64')
     expanded_idx.loc[gap_data.index] = gap_data
     return expanded_idx
 

@@ -9,6 +9,7 @@ import pandas as pd
 import typing
 from scipy.signal import find_peaks
 import typing as t
+import src.utils.pd_accessors as pda
 
 
 def regime_breakout(df, _h, _l, window):
@@ -138,7 +139,7 @@ def hilo_alternation(hilo, dist=None, hurdle=None):
         return hilo
 
 
-def historical_swings(df, _o='open', _h='high', _l='low', _c='close', round_place=2, lvl_limit=9):
+def historical_swings(df, _o='open', _h='high', _l='low', _c='close', round_place=2, lvl_limit=3):
     reduction = df[[_o, _h, _l, _c]].copy()
 
     reduction["avg_px"] = round(reduction[[_h, _l, _c]].mean(axis=1), round_place)
@@ -316,6 +317,7 @@ def average_true_range(
     _max = df[_h].combine(df[_c].shift(), max)
     _min = df[_l].combine(df[_c].shift(), min)
     atr = (_max - _min).rolling(window=window).mean()
+    # atr = (_max - _min).ewm(span=window, min_periods=window).mean()
     return atr
 
 
@@ -360,6 +362,10 @@ def retest_swing(
             df.at[hh_ll_dt, _swg] = hh_ll
 
     return df, discovery_lag
+
+
+def new_retest_swing():
+    pass
 
 
 def retrace_swing(
@@ -623,7 +629,7 @@ class LatestSwingData:
         return df
 
 
-def init_swings(
+def old_init_swings(
         df: pd.DataFrame,
         dist_pct: float,
         retrace_pct: float,
@@ -644,6 +650,11 @@ def init_swings(
 
     volatility_series = average_true_range(df=df, window=n_num)
     _dist_vol_series = volatility_series * 5
+    df['rol_hi'] = df['high'].rolling(n_num).max()
+    df['rol_lo'] = df['low'].rolling(n_num).min()
+
+    df['hi_vol'] = (df['rol_hi'] - _dist_vol_series).ffill()
+    df['lo_vol'] = (df['rol_lo'] + _dist_vol_series).ffill()
     _retrace_vol_series = volatility_series * 2.5
     vlty = round(volatility_series[latest_sw_vars.extreme_date], 2)
 
@@ -674,13 +685,101 @@ def init_swings(
         if retest_swing_lag is not None:
             lag_compare.append(retest_swing_lag)
 
-        if retrace_swing_lag is None:
+        if retrace_swing_lag is not None:
             lag_compare.append(retrace_swing_lag)
 
         if len(lag_compare) > 0:
             discovery_lag = np.maximum(*lag_compare)
 
     return df, discovery_lag
+
+
+def init_swings(
+        df,
+        dist_pct,
+        retrace_pct,
+        n_num,
+        lvl=3,
+        lvl_limit=3
+):
+    sw_list = []
+    for i in range(1, lvl+1):
+        swings = init_volatility_swings(df, n_num, i)
+        swings['st_px'] = pda.PeakTable(swings).start_price(df)
+        swings['en_px'] = pda.PeakTable(swings).end_price(df)
+        df.loc[swings.start.loc[swings.type == -1], f'hi{i}'] = swings.loc[swings.type == -1, 'st_px'].values
+        df.loc[swings.start.loc[swings.type == 1], f'lo{i}'] = swings.loc[swings.type == 1, 'st_px'].values
+        sw_list.append(swings)
+    peak_table = pd.concat(sw_list).sort_values(by='start', ascending=True).reset_index(drop=True)
+    return df, peak_table
+
+
+def init_volatility_swings(px: pd.DataFrame, window, lvl=3):
+
+    atr = average_true_range(df=px, window=window)
+    vol_mult = {3: 5, 2: 2, 1: 1}[lvl]
+    atr = atr * vol_mult
+    _px = px[['close']].copy()
+    _px['avg_px'] = px[['high', 'low', 'close']].mean(axis=1)
+    _atr = atr.copy()
+    swing_data = []
+    latest_swing_data = initial_volatility_swing(_px, atr)
+    while None not in latest_swing_data:
+        swing_data.append(latest_swing_data + (lvl,))
+        latest_swing_type = latest_swing_data[-1] * -1
+        latest_swing_date = latest_swing_data[0]
+        try:
+            _px = _px.loc[_px.index > latest_swing_date]
+        except TypeError:
+            pass
+        _atr = _atr.loc[_atr.index > latest_swing_date]
+
+        # swap swing type from previous and search
+        latest_swing_data = get_next_peak_data(_px, _atr, latest_swing_type)
+
+    return pd.DataFrame(data=swing_data, columns=['start', 'end', 'type', 'lvl'])
+
+
+def initial_volatility_swing(px, atr):
+    """get data for the first swing in the series"""
+    high_peak_date, high_discovery_date, lo_dir = get_next_peak_data(px, atr, -1)
+    low_peak_date, low_discovery_date, hi_dir = get_next_peak_data(px, atr, 1)
+    swing_data_selector = {
+        high_discovery_date: (high_peak_date, high_discovery_date, lo_dir),
+        low_discovery_date: (low_peak_date, low_discovery_date, hi_dir)
+    }
+    discovery_compare = []
+    if high_discovery_date is not None:
+        discovery_compare.append(high_discovery_date)
+    if low_discovery_date is not None:
+        discovery_compare.append(low_discovery_date)
+    if len(discovery_compare) > 0:
+        latest_swing_discovery_date = np.minimum(*discovery_compare)
+        res = swing_data_selector[latest_swing_discovery_date]
+    else:
+        # no swings discovered
+        res = None, None, None
+    return res
+
+
+def get_next_peak_data(px, atr, dir_):
+    """
+    returns the first date where close price crosses distance threshold
+    """
+    assert dir_ in [1, -1], f'got {dir_}'
+    cum_f= 'cummax' if dir_ == -1 else 'cummin'
+
+    extremes = getattr(px.avg_px, cum_f)()
+    distance_threshold = abs(px.close - extremes) - atr
+    peak_discovery_date = px.loc[distance_threshold > 0].first_valid_index()
+    if peak_discovery_date is not None:
+        date_query = px.index <= peak_discovery_date
+        price_query = px.avg_px == extremes.loc[peak_discovery_date]
+        peak_date = px.loc[date_query & price_query].iloc[-1].name
+    else:
+        return None, None, None
+
+    return peak_date, peak_discovery_date, dir_
 
 
 @dataclass
@@ -929,7 +1028,7 @@ def regime_floor_ceiling(
                 np.nan
             ),
         )
-        df[rg] = df[rg].fillna(method="ffill")
+    df[rg] = df[rg].fillna(method="ffill")
     #     #     df[rg+'_no_fill'] = df[rg]
     return df
 

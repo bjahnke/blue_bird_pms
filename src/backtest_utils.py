@@ -79,8 +79,8 @@ def run_backtest():
         data_getter_method=lambda s: price_glob.get_prices(s),
     ).yield_strategy_data(
         bench_symbol="SPY",
-        symbols=ticks,
-        # symbols=['CVX'],
+        # symbols=ticks,
+        symbols=['STE'],
         strategy=lambda pdf_, _: (
             sfcr.fc_scale_strategy(
                 price_data=scanner.data_to_relative(pdf_, bench),
@@ -89,7 +89,7 @@ def run_backtest():
                 swing_window=63,
                 sw_lvl=3,
                 regime_threshold=0.5,
-                trail_offset_pct=0.01,
+                trail_offset_pct=0.005,
                 r_multiplier=1.5,
                 entry_lvls=None,
                 highest_peak_lvl=3,
@@ -203,7 +203,7 @@ def main_roll_scan():
     _strategy_overview = pd.read_csv(_data_loader.file_path('stat_overview_15m.csv'))
 
     _price_data_by_symbol = PriceGlob(_price_data).swap_level()
-    _symbol = 'DXCM'
+    _symbol = 'CVX'
     scanner.rolling_plot(
         _price_data_by_symbol.data[_symbol],
         _strategy_lookup[_symbol].enhanced_price_data[['open', 'high', 'low', 'close']],
@@ -218,4 +218,5 @@ def main_roll_scan():
 
 if __name__ == '__main__':
     run_backtest()
+
 
