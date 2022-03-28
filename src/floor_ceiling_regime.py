@@ -410,7 +410,7 @@ def draw_stop_line(
 
 
 def process_signal_data(
-    price_data: pd.DataFrame,
+    r_price_data: pd.DataFrame,
     regimes: pd.DataFrame,
     entry_candidates: pd.DataFrame,
     peak_table: pd.DataFrame,
@@ -436,7 +436,9 @@ def process_signal_data(
     }
     valid_entries = pd.DataFrame(columns=entry_candidates.columns.to_list())
     stop_lines = []
-    french_stop = pda.FrenchStop.init_empty_df(index=price_data.index)
+    french_stop = pda.FrenchStop.init_empty_df(index=r_price_data.index)
+    entry_signal = None
+    entry_price = None
 
     for rg_idx, rg_info in regimes.iterrows():
         stop_calc = trail_map[rg_info.rg]
@@ -445,7 +447,7 @@ def process_signal_data(
 
         # next candidate must be higher/lower than prev entry price depending on regime
         while True:
-            rg_price_data = price_data.loc[start:end]
+            rg_price_data = r_price_data.loc[start:end]
             rg_peak_table = peak_table.loc[
                 (peak_table.end >= rg_info.start) &
                 (peak_table.end < rg_info.end) &
@@ -458,32 +460,22 @@ def process_signal_data(
             ]
             if rg_entry_candidates.empty:
                 break
-            try:
-                # filter for entries that are less than the previous entry
-                # or less than the previous level 3 swing
-                entry_prices = price_data.loc[rg_entry_candidates.entry, "close"]
-                _after_entry = rg_peak_table.end > entry_signal.entry
-                _before_next_entry = rg_peak_table.end < rg_entry_candidates.iloc[0].entry
-                last_lvl3_peak = rg_peak_table.loc[_after_entry & _before_next_entry]
-                if not last_lvl3_peak.empty:
-                    last_lvl3_peak = last_lvl3_peak.iloc[-1]
-                    lvl3_price = price_data.loc[last_lvl3_peak.start, 'close']
-                    if entry_signal.entry < last_lvl3_peak.end and (entry_price - lvl3_price) * rg_info.rg > 0:
-                        entry_price = lvl3_price
 
-                entry_query = (
-                    ((entry_prices.values - entry_price) * rg_info.rg) > 0
-                )
+            rg_entry_candidates = reduce_regime_candidates(
+                rg_entry_candidates,
+                r_price_data,
+                entry_price,
+                entry_signal,
+                rg_info,
+                rg_peak_table
+            )
 
-                rg_entry_candidates = rg_entry_candidates.loc[entry_query]
-            except NameError:
-                pass
-            if len(rg_entry_candidates) == 0:
+            if rg_entry_candidates.empty:
                 break
 
             entry_signal = rg_entry_candidates.iloc[0]
+            entry_price = r_price_data.close.loc[entry_signal.entry]
 
-            entry_price = price_data.close.loc[entry_signal.entry]
             (
                 stop_line,
                 exit_signal_date,
@@ -492,7 +484,7 @@ def process_signal_data(
                 fixed_stop_price,
             ) = draw_stop_line(
                 stop_calc=stop_calc,
-                price=price_data,
+                price=r_price_data,
                 trail_stop_date=entry_signal.trail_stop,
                 fixed_stop_date=entry_signal.fixed_stop,
                 entry_date=entry_signal.entry,
@@ -519,7 +511,7 @@ def process_signal_data(
             valid_entries = pd.concat([valid_entries, entry_signal_data.to_frame().transpose()], ignore_index=True)
 
             french_stop = pda.FrenchStop(french_stop).update(
-                price_data,
+                r_price_data,
                 valid_entries,
                 rg_end=end
             )
@@ -557,6 +549,54 @@ def process_signal_data(
     return valid_entries, stop_prices, french_stop
 
 
+def reduce_regime_candidates(
+        rg_entry_candidates: pd.DataFrame,
+        price_data: pd.DataFrame,
+        entry_price: t.Union[float, None],
+        entry_signal: t.Union[pd.Series, None],
+        rg_info: pd.Series,
+        rg_peak_table: pd.DataFrame,
+
+):
+    """
+    logic for reducing regime candidates,
+    For bull regimes, new entries must be higher than previous entry, unless first entry (vice versa for bear)
+    additionally:
+    # if prev entry check yields no new entries and a new leg exists after it
+    # get all entries after most recent new leg
+    # otherwise, only get oll candidates after new leg if the next entry is
+    # after the leg
+
+    """
+    entry_prices = price_data.loc[rg_entry_candidates.entry, "close"]
+    try:
+        # filter for entries that are within the previous entry
+        new_rg_entry_candidates = rg_entry_candidates.loc[
+            ((entry_prices.values - entry_price) * rg_info.rg) > 0
+        ]
+        # get new legs
+        _sw_after_entry = rg_peak_table.loc[rg_peak_table.end > entry_signal.entry]
+    except TypeError:
+        # previous entry data is none (it is the first signal) make no new changes
+        new_rg_entry_candidates = rg_entry_candidates
+    else:
+        if not _sw_after_entry.empty:
+            # if entries still exist, only select legs that are prior to next entry
+            # otherwise it is too early to use new leg
+            if not new_rg_entry_candidates.empty:
+                _sw_after_entry = _sw_after_entry.loc[
+                    _sw_after_entry.end < new_rg_entry_candidates.iloc[0].entry
+                ]
+
+            # if not all new legs were filtered out yet, then it is time to use
+            # leg to select new entries
+            if not _sw_after_entry.empty:
+                new_rg_entry_candidates = rg_entry_candidates.loc[
+                    rg_entry_candidates.entry > _sw_after_entry.iloc[0].end
+                ]
+    return new_rg_entry_candidates
+
+
 @dataclass
 class FcStrategyTables:
     enhanced_price_data: pd.DataFrame
@@ -570,6 +610,7 @@ class FcStrategyTables:
 
 def fc_scale_strategy(
     price_data: pd.DataFrame,
+    abs_price_data: pd.DataFrame,
     distance_pct=0.05,
     retrace_pct=0.05,
     swing_window=63,
@@ -609,6 +650,7 @@ def fc_scale_strategy(
         highest_peak_lvl,
         offset_pct=trail_offset_pct,
         r_multiplier=r_multiplier,
+        abs_price_data=abs_price_data,
     )
 
     return FcStrategyTables(
@@ -678,10 +720,22 @@ def init_signal_stop_loss_tables(
     highest_peak_lvl,
     offset_pct,
     r_multiplier,
+    abs_price_data,
 ) -> t.Tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
     raw_signals = get_all_entry_candidates(
         price_data, regime_table, peak_table, entry_lvls, highest_peak_lvl
     )
+    #     symbol_data['over_under'] = np.where((symbol_data.close-strategy_data.enhanced_price_data.close) > 0, -1, 1)
+    over_under_by_price = np.sign(abs_price_data.close - price_data.close)
+    over_under_by_signal = over_under_by_price.loc[raw_signals.entry].reset_index(drop=True)
+    signals_filter = (
+            (over_under_by_signal == raw_signals.dir) |
+            (over_under_by_signal == 0)
+    )
+    raw_signals = raw_signals.loc[signals_filter].reset_index(drop=True)
+    if raw_signals.empty:
+        raise NoEntriesError
+
     return process_signal_data(
         price_data,
         regime_table,

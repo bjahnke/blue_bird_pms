@@ -80,10 +80,11 @@ def run_backtest():
     ).yield_strategy_data(
         bench_symbol="SPY",
         # symbols=ticks,
-        symbols=['STE'],
+        symbols=['ADBE'],
         strategy=lambda pdf_, _: (
             sfcr.fc_scale_strategy(
                 price_data=scanner.data_to_relative(pdf_, bench),
+                abs_price_data=pdf_,
                 distance_pct=0.05,
                 retrace_pct=0.05,
                 swing_window=63,

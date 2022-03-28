@@ -405,12 +405,12 @@ def run_scanner(scanner, stat_calculator, relative_side_only=True):
         signals = strategy_data.valid_entries.copy()
 
         # only process long for outperformers, short for underperformers
-        if relative_side_only:
-            symbol_data['over_under'] = np.where((symbol_data.close-strategy_data.enhanced_price_data.close) > 0, -1, 1)
-            signals_filter = symbol_data.over_under.loc[signals.entry].reset_index(drop=True) == signals.dir
-            signals = signals.loc[signals_filter].reset_index(drop=True)
-            if signals.empty:
-                continue
+        # if relative_side_only:
+        #     symbol_data['over_under'] = np.where((symbol_data.close-strategy_data.enhanced_price_data.close) > 0, -1, 1)
+        #     signals_filter = symbol_data.over_under.loc[signals.entry].reset_index(drop=True) == signals.dir
+        #     signals = signals.loc[signals_filter].reset_index(drop=True)
+        #     if signals.empty:
+        #         continue
 
         stat_sheet_historical = stat_calculator(symbol_data, signals)
         if stat_sheet_historical is None:

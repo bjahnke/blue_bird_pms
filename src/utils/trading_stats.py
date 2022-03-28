@@ -127,6 +127,9 @@ def robustness_score(grit, csr, sqn):
     except IndexError:
         score = pd.Series(data=np.NaN, index=grit.index)
     else:
+        _grit.loc[_grit.index < start_date] = np.nan
+        _csr.loc[_csr.index < start_date] = np.nan
+        _sqn.loc[_sqn.index < start_date] = np.nan
         score = (
             _grit * _csr * _sqn / (_grit[start_date] * _csr[start_date] * _sqn[start_date])
         )

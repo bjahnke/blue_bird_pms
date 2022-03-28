@@ -364,10 +364,6 @@ def retest_swing(
     return df, discovery_lag
 
 
-def new_retest_swing():
-    pass
-
-
 def retrace_swing(
         df,
         ud,
@@ -702,9 +698,20 @@ def init_swings(
         lvl=3,
         lvl_limit=3
 ):
+    """
+    new init swings function
+    :param df:
+    :param dist_pct:
+    :param retrace_pct:
+    :param n_num:
+    :param lvl:
+    :param lvl_limit:
+    :return:
+    """
     sw_list = []
+    atr = average_true_range(df, n_num)
     for i in range(1, lvl+1):
-        swings = init_volatility_swings(df, n_num, i)
+        swings = init_volatility_swings(df, atr, i)
         swings['st_px'] = pda.PeakTable(swings).start_price(df)
         swings['en_px'] = pda.PeakTable(swings).end_price(df)
         df.loc[swings.start.loc[swings.type == -1], f'hi{i}'] = swings.loc[swings.type == -1, 'st_px'].values
@@ -714,9 +721,7 @@ def init_swings(
     return df, peak_table
 
 
-def init_volatility_swings(px: pd.DataFrame, window, lvl=3):
-
-    atr = average_true_range(df=px, window=window)
+def init_volatility_swings(px: pd.DataFrame, atr, lvl=3):
     vol_mult = {3: 5, 2: 2, 1: 1}[lvl]
     atr = atr * vol_mult
     _px = px[['close']].copy()
@@ -767,15 +772,35 @@ def get_next_peak_data(px, atr, dir_):
     returns the first date where close price crosses distance threshold
     """
     assert dir_ in [1, -1], f'got {dir_}'
-    cum_f= 'cummax' if dir_ == -1 else 'cummin'
+    cum_f = 'cummax' if dir_ == -1 else 'cummin'
 
-    extremes = getattr(px.avg_px, cum_f)()
-    distance_threshold = abs(px.close - extremes) - atr
-    peak_discovery_date = px.loc[distance_threshold > 0].first_valid_index()
+    # if dir_ == -1:
+    #     cum_f = 'cummax'
+    #     def f(divisor, _):
+    #         return abs(retrace / divisor)
+    # else:
+    #     cum_f = 'cummin'
+    #     def f(divisor, round_val):
+    #         return round(retrace / divisor, round_val)
+
+    _atr_valid_dt = atr.first_valid_index()
+    _px = px.loc[_atr_valid_dt:]
+    _atr = atr.loc[_atr_valid_dt:]
+
+    extremes = getattr(_px.avg_px, cum_f)()
+    extremes_changed = extremes != extremes.shift(1)
+
+    # only use volatility at peak
+    _atr_at_peaks = pd.Series(index=_atr.index)
+    _atr_at_peaks.loc[extremes_changed] = _atr.loc[extremes_changed]
+    _atr_at_peaks = _atr_at_peaks.ffill()
+    # retrace = 1
+    distance_threshold = abs(_px.close - extremes) - _atr_at_peaks
+    peak_discovery_date = _px.loc[distance_threshold > 0].first_valid_index()
     if peak_discovery_date is not None:
-        date_query = px.index <= peak_discovery_date
-        price_query = px.avg_px == extremes.loc[peak_discovery_date]
-        peak_date = px.loc[date_query & price_query].iloc[-1].name
+        date_query = _px.index <= peak_discovery_date
+        price_query = _px.avg_px == extremes.loc[peak_discovery_date]
+        peak_date = _px.loc[date_query & price_query].iloc[-1].name
     else:
         return None, None, None
 
@@ -852,8 +877,18 @@ def regime_floor_ceiling(
     threshold_test, rg_ch_ix_list, rg_ch_list = [], [], []
     floor_ix_list, floor_list, ceiling_ix_list, ceiling_list = [], [], [], []
 
-    floor_lists = RegimeFcLists(floor_list, floor_ix_list, rg_ch_ix_list, rg_ch_list)
-    ceiling_lists = RegimeFcLists(ceiling_list, ceiling_ix_list, rg_ch_ix_list, rg_ch_list)
+    floor_lists = RegimeFcLists(
+        fc_vals=floor_list,
+        fc_dates=floor_ix_list,
+        rg_ch_dates=rg_ch_ix_list,
+        rg_ch_vals=rg_ch_list
+    )
+    ceiling_lists = RegimeFcLists(
+        fc_vals=ceiling_list,
+        fc_dates=ceiling_ix_list,
+        rg_ch_dates=rg_ch_ix_list,
+        rg_ch_vals=rg_ch_list
+    )
 
     # Range initialisation to 1st swing
     floor_ix_list.append(df.index[0])
@@ -863,15 +898,23 @@ def regime_floor_ceiling(
     ceiling_found = floor_found = breakdown = breakout = False
 
     # Swing lists
+    # _sw_hi_peak_table = pda.PeakTable(_sw_hi_peak_table).start_price(df)
+
     swing_highs = df.loc[pd.notnull(df[shi]), shi]
     swing_highs_ix = list(swing_highs.index)
     swing_highs = list(swing_highs)
 
+    # _sw_lo_peak_table[] = pda.PeakTable(_sw_lo_peak_table).start_price(df)
     swing_lows = df.loc[pd.notnull(df[slo]), slo]
     swing_lows_ix = list(swing_lows.index)
     swing_lows = list(swing_lows)
 
-    loop_size = np.maximum(len(swing_highs), len(swing_lows))
+    _sw_hi_len = len(_sw_hi_peak_table)
+    _sw_lo_len = len(_sw_lo_peak_table)
+    loop_size = np.maximum(_sw_hi_len, _sw_lo_len)
+    _hi_idxs = [i if i < _sw_hi_len else -1 for i in range(loop_size)]
+    _lo_idxs = [i if i < _sw_lo_len else -1 for i in range(loop_size)]
+
     fc_data = pd.DataFrame()
 
     swing_discovery_date = None
@@ -879,17 +922,17 @@ def regime_floor_ceiling(
     # Loop through swings
     for i in range(loop_size):
         # asymmetric swing list: default to last swing if shorter list
-        _lo_i = i if i < len(swing_lows_ix) else -1
-        s_lo_ix = swing_lows_ix[_lo_i]
-        s_lo = swing_lows[_lo_i]
+        sw_lo_data = _sw_lo_peak_table.iloc[_lo_idxs[i]]
+        sw_hi_data = _sw_hi_peak_table.iloc[_hi_idxs[i]]
 
-        _hi_i = i if i < len(swing_highs_ix) else -1
-        s_hi_ix = swing_highs_ix[_hi_i]
-        s_hi = swing_highs[_hi_i]
+        # s_lo_ix = swing_lows_ix[_lo_idxs[i]]
+        # s_lo = swing_lows[_lo_idxs[i]]
+        # s_hi_ix = swing_highs_ix[_hi_idxs[i]]
+        # s_hi = swing_highs[_hi_idxs[i]]
 
-        _s_lo_discovery = _sw_lo_peak_table.end.loc[_sw_lo_peak_table.start == s_lo_ix].iloc[0]
-        _s_hi_discovery = _sw_hi_peak_table.end.loc[_sw_hi_peak_table.start == s_hi_ix].iloc[0]
-        swing_discovery_date = np.maximum(_s_lo_discovery, _s_hi_discovery)  # latest swing index
+        # _s_lo_discovery = _sw_lo_peak_table.end.loc[_sw_lo_peak_table.start == s_lo_ix].iloc[0]
+        # _s_hi_discovery = _sw_hi_peak_table.end.loc[_sw_hi_peak_table.start == s_hi_ix].iloc[0]
+        swing_discovery_date = np.maximum(sw_lo_data.end, sw_hi_data.end)  # latest swing index
 
         # swing_discovery_date = peak_table.loc[
         #     (peak_table.lvl == sw_lvl) &
@@ -902,36 +945,32 @@ def regime_floor_ceiling(
         # CLASSIC CEILING DISCOVERY
         if ceiling_found is False:
             # Classic ceiling test
-            try:
-                res = find_fc(
-                    df,
-                    fc_ix=floor_ix_list[-1],
-                    latest_swing_ix=_s_hi_discovery,
-                    latest_swing_val=s_hi,
-                    price_col=_h,
-                    extreme_func='max',
-                    stdev=stdev,
-                    sw_type=-1,
-                    threshold=threshold
-                )
-            except IndexError:
-                print('ceiling index error')
-            else:
-                if len(res) > 0:
-                    # Boolean flags reset
-                    ceiling_found = True
-                    floor_found = breakdown = breakout = False
-                    # Append lists
-                    ceiling_lists.update(res)
-                    fc_data = pd.concat([fc_data, pd.DataFrame(data=res, index=[len(fc_data)])])
+            res = find_fc(
+                df,
+                fc_ix=floor_ix_list[-1],
+                latest_swing_ix=sw_hi_data.end,
+                latest_swing_val=sw_hi_data.st_px,
+                price_col=_h,
+                extreme_func='max',
+                stdev=stdev,
+                sw_type=-1,
+                threshold=threshold
+            )
+            if len(res) > 0:
+                # Boolean flags reset
+                ceiling_found = True
+                floor_found = breakdown = breakout = False
+                # Append lists
+                ceiling_lists.update(res)
+                fc_data = pd.concat([fc_data, pd.DataFrame(data=res, index=[len(fc_data)])])
 
-                    # EXCEPTION HANDLING: price penetrates discovery swing
+                # EXCEPTION HANDLING: price penetrates discovery swing
         # 1. if ceiling found, calculate regime since rg_ch_ix using close.cummin
         elif ceiling_found is True:
             res, df = fc_found(
                 df=df,
-                rg_ch_dates=rg_ch_ix_list,
-                rg_ch_vals=rg_ch_list,
+                latest_rg_ch_dt=rg_ch_ix_list[-1],
+                latest_rg_ch_val=rg_ch_list[-1],
                 latest_hi_lo_sw_discovery=swing_discovery_date,
                 cum_func='cummax',
                 fc_type=1,
@@ -955,35 +994,31 @@ def regime_floor_ceiling(
         # CLASSIC FLOOR DISCOVERY
         if floor_found is False:
             # Classic floor test
-            try:
-                res = find_fc(
-                    df=df,
-                    fc_ix=ceiling_ix_list[-1],
-                    latest_swing_ix=_s_lo_discovery,
-                    latest_swing_val=s_lo,
-                    price_col=_l,
-                    extreme_func='min',
-                    stdev=stdev,
-                    sw_type=1,
-                    threshold=threshold
-                )
-            except IndexError:
-                print('floor index error')
-            else:
-                if len(res) > 0:
-                    # Boolean flags reset
-                    floor_found = True
-                    ceiling_found = breakdown = breakout = False
-                    floor_lists.update(res)
-                    fc_data = pd.concat([fc_data, pd.DataFrame(data=res, index=[len(fc_data)])])
+            res = find_fc(
+                df=df,
+                fc_ix=ceiling_ix_list[-1],
+                latest_swing_ix=sw_lo_data.end,
+                latest_swing_val=sw_lo_data.st_px,
+                price_col=_l,
+                extreme_func='min',
+                stdev=stdev,
+                sw_type=1,
+                threshold=threshold
+            )
+            if len(res) > 0:
+                # Boolean flags reset
+                floor_found = True
+                ceiling_found = breakdown = breakout = False
+                floor_lists.update(res)
+                fc_data = pd.concat([fc_data, pd.DataFrame(data=res, index=[len(fc_data)])])
 
         # EXCEPTION HANDLING: price penetrates discovery swing
         # 1. if floor found, calculate regime since rg_ch_ix using close.cummin
         elif floor_found is True:
             res, df = fc_found(
                 df=df,
-                rg_ch_dates=rg_ch_ix_list,
-                rg_ch_vals=rg_ch_list,
+                latest_rg_ch_dt=rg_ch_ix_list[-1],
+                latest_rg_ch_val=rg_ch_list[-1],
                 latest_hi_lo_sw_discovery=swing_discovery_date,
                 cum_func='cummin',
                 fc_type=-1
@@ -1081,8 +1116,8 @@ def find_fc(
 
 def fc_found(
         df,
-        rg_ch_dates,
-        rg_ch_vals,
+        latest_rg_ch_dt,
+        latest_rg_ch_val,
         latest_hi_lo_sw_discovery,
         cum_func: str,
         fc_type: int,
@@ -1090,15 +1125,15 @@ def fc_found(
         rg_col='rg',
 ):
     """set regime to where the newest swing was DISCOVERED"""
-    close_data = df.loc[rg_ch_dates[-1]: latest_hi_lo_sw_discovery, close_col]
+    close_data = df.loc[latest_rg_ch_dt: latest_hi_lo_sw_discovery, close_col]
     close_extremes = getattr(close_data, cum_func)()
-    df.loc[rg_ch_dates[-1]: latest_hi_lo_sw_discovery, rg_col] = np.sign(
-        close_extremes - rg_ch_vals[-1]
+    df.loc[latest_rg_ch_dt: latest_hi_lo_sw_discovery, rg_col] = np.sign(
+        close_extremes - latest_rg_ch_val
     )
 
     # 2. if price.cummax/cummin penetrates swing: regime turns bullish/bearish, breakout/breakdown
     test_break = False
-    if (df.loc[rg_ch_dates[-1]: latest_hi_lo_sw_discovery, rg_col] * fc_type > 0).any():
+    if (df.loc[latest_rg_ch_dt: latest_hi_lo_sw_discovery, rg_col] * fc_type > 0).any():
         # Boolean flags reset
         test_break = True
 
