@@ -67,7 +67,7 @@ def run_backtest():
     interval_str = f'{interval}m'
     bench_str = "SPY"
 
-    data_loader = DataLoader.init_from_paths('other.json', 'base.json')
+    data_loader = DataLoader.init_from_paths('..\\other.json', '..\\base.json')
     price_data = pd.read_csv(data_loader.history_path(bench_str, interval_str), index_col=0, header=[0, 1]).iloc[
                  1:].astype('float64')
     price_data.index = pd.to_datetime(price_data.index, utc=True)
@@ -79,8 +79,8 @@ def run_backtest():
         data_getter_method=lambda s: price_glob.get_prices(s),
     ).yield_strategy_data(
         bench_symbol="SPY",
-        # symbols=ticks,
-        symbols=['ADBE'],
+        symbols=ticks,
+        # symbols=['ADBE'],
         strategy=lambda pdf_, _: (
             sfcr.fc_scale_strategy(
                 price_data=scanner.data_to_relative(pdf_, bench),
