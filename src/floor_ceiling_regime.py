@@ -512,7 +512,10 @@ def process_signal_data(
 
             french_stop = pda.FrenchStop(french_stop).update(
                 r_price_data,
-                valid_entries,
+                valid_entries.loc[
+                    (valid_entries.dir == rg_info.rg) &
+                    (valid_entries.entry >= rg_info.start)
+                ],
                 rg_end=end
             )
             french_exit_signal = stop_calc.exit_signal(rg_price_data, french_stop.stop_price)
@@ -726,7 +729,8 @@ def init_signal_stop_loss_tables(
         price_data, regime_table, peak_table, entry_lvls, highest_peak_lvl
     )
     #     symbol_data['over_under'] = np.where((symbol_data.close-strategy_data.enhanced_price_data.close) > 0, -1, 1)
-    over_under_by_price = np.sign(abs_price_data.close - price_data.close)
+    # over_under_by_price = np.sign(abs_price_data.close - price_data.close)
+    over_under_by_price = np.sign(price_data.close - abs_price_data.close)
     over_under_by_signal = over_under_by_price.loc[raw_signals.entry].reset_index(drop=True)
     signals_filter = (
             (over_under_by_signal == raw_signals.dir) |
@@ -754,6 +758,7 @@ def calc_stats(
     percentile: float,
     limit,
     freq: str,
+    round_to=2
 ) -> t.Union[None, pd.DataFrame]:
     """
     get full stats of strategy, rolling and expanding
@@ -766,7 +771,7 @@ def calc_stats(
     :param limit:
     :return:
     """
-
+    price_data = round(price_data, round_to)
     # TODO include regime returns
     signal_table = pda.SignalTable(signals.copy())
     signal_table.data["trade_count"] = signal_table.counts
@@ -812,6 +817,7 @@ def calc_stats(
         .count()
         .fillna(method="ffill")
     )
+
     total_count = (
         strategy_returns_1d.loc[strategy_returns_1d != 0]
         .expanding()
@@ -835,7 +841,7 @@ def calc_stats(
     sqn_expanding = ts.t_stat(trade_count, edge_expanding)
 
     win_roll = strategy_returns_1d.copy()
-    win_roll[win_roll < 0] = np.nan
+    win_roll[win_roll <= 0] = np.nan
     win_rate_roll = win_roll.rolling(window, min_periods=0).count() / window
     avg_win_roll = profits_roll / window
     avg_loss_roll = losses_roll / window
@@ -886,6 +892,7 @@ def calc_stats(
 
 
 def expand_index(gap_data, full_index):
+    """insert indexes into the given gap data"""
     try:
         expanded_idx = gap_data.__class__(index=full_index, columns=gap_data.columns, dtype='float64')
     except AttributeError:

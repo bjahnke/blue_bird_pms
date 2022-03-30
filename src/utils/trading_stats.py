@@ -52,7 +52,17 @@ def expanding_losses(returns):
 
 
 def profit_ratio(profits, losses):
-    pr = profits.fillna(method="ffill") / abs(losses.fillna(method="ffill"))
+    """
+    # if losses goes to zero, ratio is a factor of profits
+    # if profits is zero, ratio should be zero
+    :param profits:
+    :param losses:
+    :return:
+    """
+    _losses = losses.copy()
+    _losses.loc[_losses == 0] = np.nan
+    _losses = abs(_losses.fillna(method="ffill"))
+    pr = profits.fillna(method="ffill") / _losses
     return pr
 
 
