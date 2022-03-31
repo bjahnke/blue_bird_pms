@@ -472,13 +472,13 @@ def process_signal_data(
     valid_entries = pd.DataFrame(columns=entry_candidates.columns.to_list())
     stop_lines = []
     french_stop = pda.FrenchStop.init_empty_df(index=r_price_data.index)
-    entry_signal = None
-    entry_price = None
 
     for rg_idx, rg_info in regimes.iterrows():
         stop_calc = trail_map[rg_info.rg]
         start = rg_info.start
         end = rg_info.end
+        entry_signal = None
+        entry_price = None
 
         # next candidate must be higher/lower than prev entry price depending on regime
         while True:
@@ -511,29 +511,13 @@ def process_signal_data(
             entry_signal = rg_entry_candidates.iloc[0]
             entry_price = r_price_data.close.loc[entry_signal.entry]
 
-            # (
-            #     stop_line,
-            #     exit_signal_date,
-            #     partial_exit_date,
-            #     stop_loss_exit_signal,
-            #     fixed_stop_price,
-            # ) = draw_stop_line(
-            #     stop_calc=stop_calc,
-            #     price=r_price_data,
-            #     trail_stop_date=entry_signal.trail_stop,
-            #     fixed_stop_date=entry_signal.fixed_stop,
-            #     entry_date=entry_signal.entry,
-            #     offset_pct=offset_pct,
-            #     r_multiplier=r_multiplier,
-            #     rg_end_date=end,
-            # )
             (
                 stop_line,
                 exit_signal_date,
                 partial_exit_date,
                 stop_loss_exit_signal,
                 fixed_stop_price,
-            ) = draw_fixed_stop(
+            ) = draw_stop_line(
                 stop_calc=stop_calc,
                 price=r_price_data,
                 trail_stop_date=entry_signal.trail_stop,
@@ -543,6 +527,22 @@ def process_signal_data(
                 r_multiplier=r_multiplier,
                 rg_end_date=end,
             )
+            # (
+            #     stop_line,
+            #     exit_signal_date,
+            #     partial_exit_date,
+            #     stop_loss_exit_signal,
+            #     fixed_stop_price,
+            # ) = draw_fixed_stop(
+            #     stop_calc=stop_calc,
+            #     price=r_price_data,
+            #     trail_stop_date=entry_signal.trail_stop,
+            #     fixed_stop_date=entry_signal.fixed_stop,
+            #     entry_date=entry_signal.entry,
+            #     offset_pct=offset_pct,
+            #     r_multiplier=r_multiplier,
+            #     rg_end_date=end,
+            # )
             # crop last signal at entry
             if len(stop_lines) > 0:
                 try:
@@ -639,14 +639,14 @@ def reduce_regime_candidates(
             # otherwise it is too early to use new leg
             if not new_rg_entry_candidates.empty:
                 _sw_after_entry = _sw_after_entry.loc[
-                    _sw_after_entry.end < new_rg_entry_candidates.iloc[0].entry
+                    _sw_after_entry.end <= new_rg_entry_candidates.iloc[0].entry
                 ]
 
             # if not all new legs were filtered out yet, then it is time to use
             # leg to select new entries
             if not _sw_after_entry.empty:
                 new_rg_entry_candidates = rg_entry_candidates.loc[
-                    rg_entry_candidates.entry > _sw_after_entry.iloc[0].end
+                    rg_entry_candidates.entry >= _sw_after_entry.iloc[0].end
                 ]
     return new_rg_entry_candidates
 
@@ -779,15 +779,13 @@ def init_signal_stop_loss_tables(
     raw_signals = get_all_entry_candidates(
         price_data, regime_table, peak_table, entry_lvls, highest_peak_lvl
     )
-    #     symbol_data['over_under'] = np.where((symbol_data.close-strategy_data.enhanced_price_data.close) > 0, -1, 1)
-    # over_under_by_price = np.sign(abs_price_data.close - price_data.close)
-    over_under_by_price = np.sign(price_data.close - abs_price_data.close)
-    over_under_by_signal = over_under_by_price.loc[raw_signals.entry].reset_index(drop=True)
-    signals_filter = (
-            (over_under_by_signal == raw_signals.dir) |
-            (over_under_by_signal == 0)
-    )
-    raw_signals = raw_signals.loc[signals_filter].reset_index(drop=True)
+    # over_under_by_price = np.sign(price_data.close - abs_price_data.close)
+    # over_under_by_signal = over_under_by_price.loc[raw_signals.entry].reset_index(drop=True)
+    # signals_filter = (
+    #         (over_under_by_signal == raw_signals.dir) |
+    #         (over_under_by_signal == 0)
+    # )
+    # raw_signals = raw_signals.loc[signals_filter].reset_index(drop=True)
     if raw_signals.empty:
         raise NoEntriesError
 

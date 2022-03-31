@@ -6,7 +6,8 @@ import typing as t
 import pandas as pd
 from matplotlib import pyplot as plt
 import pickle
-from multiprocessing import Pool
+from multiprocessing import Pool, cpu_count
+from time import perf_counter
 
 
 class DataLoader:
@@ -78,7 +79,7 @@ def load_scan_data(ticker_wiki_url, other_path, base_path, days, interval, bench
 
 def scan_inst(
         _ticks: t.List[str],
-        price_glob: pd.DataFrame,
+        price_glob: t.Any,
         bench: pd.DataFrame,
         benchmark_id: str,
         interval: int,
@@ -117,8 +118,13 @@ def scan_inst(
 def multiprocess_scan(_scanner, scan_args, ticks_list, interval_str, data_loader):
     with Pool(None) as p:
         results = p.map(_scanner, [(ticks,) + scan_args for ticks in ticks_list])
+
+    _stats = []
+    _strategy_lookup = {}
+    for _so, _sl in results:
+        _stats.append(_so)
+        _strategy_lookup |= _sl
     _stat_overview = pd.concat([res[0] for res in results])
-    _strategy_lookup = results[0][1] | results[1][1]
     # stat_overview_ = stat_overview_.sort_values('risk_adj_returns_roll', axis=1, ascending=False)
     _stat_overview.to_csv(data_loader.file_path(f'stat_overview_{interval_str}.csv'))
     pkl_fp = data_loader.file_path('strategy_lookup.pkl')
@@ -234,19 +240,33 @@ def split_list(alist, wanted_parts=1):
 
 
 if __name__ == '__main__':
+    multiprocess = True
+
     with open('scan_args.json', 'r') as args_fp:
         args = json.load(args_fp)
 
     (__ticks, __price_glob, __bench,
      __benchmark_id, __interval_str,
      __interval, __data_loader) = load_scan_data(**args['load_data'])
-    list_of_tickers = split_list(__ticks, 3)
-    multiprocess_scan(
-        mp_scan_inst,
-        (__price_glob, __bench, __benchmark_id, __interval, args),
-        list_of_tickers, __interval_str, __data_loader
-    )
-    # scan_res = scan_inst(*scan_args, scan_params=args)
+    list_of_tickers = split_list(__ticks, cpu_count()-1)
+    # list_of_tickers = split_list(['LDOS', 'CSCO', 'NLOK'], cpu_count()-1)
+    start = perf_counter()
+    if multiprocess:
+        multiprocess_scan(
+            mp_scan_inst,
+            (__price_glob, __bench, __benchmark_id, __interval, args),
+            list_of_tickers, __interval_str, __data_loader
+        )
+        print(perf_counter()-start)
+    else:
+        scan_res = scan_inst(
+            _ticks=['LDOS'],
+            price_glob=__price_glob,
+            bench=__bench,
+            benchmark_id=__benchmark_id,
+            interval=__interval,
+            scan_params=args
+        )
 
 
 

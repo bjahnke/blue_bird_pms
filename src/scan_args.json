@@ -18,7 +18,7 @@
     "regime_threshold": 0.5,
     "trail_offset_pct": 0.005,
     "r_multiplier": 1.5,
-    "entry_lvls": [2],
+    "entry_lvls": [2, 3],
     "highest_peak_lvl": 3
   },
   "stat_params": {
