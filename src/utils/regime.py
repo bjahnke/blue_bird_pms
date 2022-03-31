@@ -445,6 +445,16 @@ def regime_floor_ceiling(
         cum_func='cummax',
         fc_type=-1
     )
+    calc_breakdown = hof_break_pullback(
+        df=df,
+        extreme_idx_f='idxmin',
+        extreme_val_f='cummax',
+    )
+    calc_breakout = hof_break_pullback(
+        df=df,
+        extreme_idx_f='idxmax',
+        extreme_val_f='cummin'
+    )
 
     # Range initialisation to 1st swing
     fc_data_cols = ['test', 'fc_val', 'fc_date', 'rg_ch_date', 'rg_ch_val', 'type']
@@ -504,19 +514,13 @@ def regime_floor_ceiling(
                 floor_found = ceiling_found = breakdown = False
 
         # 3. if breakout, test for bearish pullback from highest high since rg_ch_ix
-
-        # if breakout is True:
-        #     df = break_pullback(
-        #         df=df,
-        #         rg_ch_dates=rg_ch_ix_list,
-        #         rg_ch_vals=rg_ch_list,
-        #         latest_hi_lo_sw_discovery=swing_discovery_date,
-        #         extreme_idx_func='idxmax',
-        #         extreme_val_func='cummin'
-        #     )
+        if breakout is True:
+            df = calc_breakout(
+                rg_ch_data=fc_data.iloc[-1],
+                latest_sw_discovery=swing_discovery_date
+            )
 
         # CLASSIC FLOOR DISCOVERY
-
         if floor_found is False:
             # Classic floor test
             current_ceiling = fc_data.loc[fc_data.type == -1].iloc[-1]
@@ -540,15 +544,11 @@ def regime_floor_ceiling(
 
         # 3. if breakdown,test for bullish rebound from lowest low since rg_ch_ix
 
-        # if breakdown is True:
-        #     df = break_pullback(
-        #         df=df,
-        #         rg_ch_dates=rg_ch_ix_list,
-        #         rg_ch_vals=rg_ch_list,
-        #         latest_hi_lo_sw_discovery=swing_discovery_date,
-        #         extreme_idx_func='idxmin',
-        #         extreme_val_func='cummax'
-        #     )
+        if breakdown is True:
+            df = calc_breakdown(
+                rg_ch_data=fc_data.iloc[-1],
+                latest_sw_discovery=swing_discovery_date
+            )
     #             breakdown = False
     #             breakout = True
 
@@ -684,10 +684,23 @@ def hof_fc_found(df, cum_func, fc_type, close_col='close', rg_col='rg'):
     return _fc_found
 
 
+def hof_break_pullback(df, extreme_idx_f, extreme_val_f):
+    def _break_pullback(rg_ch_data, latest_sw_discovery):
+        return break_pullback(
+            df=df,
+            rg_ch_data=rg_ch_data,
+            latest_hi_lo_sw_discovery=latest_sw_discovery,
+            extreme_idx_func=extreme_idx_f,
+            extreme_val_func=extreme_val_f,
+            rg_col='rg',
+            close_col='close'
+        )
+    return _break_pullback
+
+
 def break_pullback(
         df,
-        rg_ch_dates,
-        rg_ch_vals,
+        rg_ch_data,
         latest_hi_lo_sw_discovery,
         extreme_idx_func: str,
         extreme_val_func: str,
@@ -697,7 +710,7 @@ def break_pullback(
     # brkout_high_ix = df.loc[
     #                  rg_ch_dates[-1]: latest_hi_lo_swing, close_col
     #                  ].idxmax()
-    data_range = df.loc[rg_ch_dates[-1]: latest_hi_lo_sw_discovery, close_col]
+    data_range = df.loc[rg_ch_data.rg_ch_date: latest_hi_lo_sw_discovery, close_col]
     break_extreme_date = getattr(data_range, extreme_idx_func)()
 
     # brkout_low = df[brkout_high_ix: latest_hi_lo_swing][close_col].cummin()
@@ -705,7 +718,7 @@ def break_pullback(
     break_val = getattr(break_vals, extreme_val_func)()
 
     df.loc[break_extreme_date: latest_hi_lo_sw_discovery, rg_col] = np.sign(
-        break_val - rg_ch_vals[-1]
+        break_val - rg_ch_data.rg_ch_val
     )
 
     return df

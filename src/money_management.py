@@ -36,9 +36,15 @@ class TrailStop:
         trail_stop: pd.Series = (
             getattr(extremes, self.cum_extreme)() * trail_modifier
         ).shift(1)
+        # back patch nan after shifting
         trail_stop.iat[0] = trail_stop.iat[1]
 
         return trail_stop
+
+    def init_stop_loss(self, price, stop_price, entry_date, rg_end_date):
+        stop_line = pd.Series(index=price.index)
+        stop_line.loc[entry_date: rg_end_date] = stop_price
+        return stop_line
 
     def exit_signal(self, price: pd.DataFrame, trail_stop: pd.Series) -> pd.Series:
         """detect where price has crossed price"""

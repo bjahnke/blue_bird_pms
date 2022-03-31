@@ -409,6 +409,41 @@ def draw_stop_line(
     return stop_line, exit_signal_date, partial_exit_date, stop_loss_exit_signal, fixed_stop_price
 
 
+def draw_fixed_stop(
+    stop_calc: mm.TrailStop,
+    price: pd.DataFrame,
+    trail_stop_date,
+    fixed_stop_date,
+    entry_date,
+    offset_pct,
+    r_multiplier,
+    rg_end_date,
+) -> t.Tuple[pd.Series, pd.Timestamp, pd.Timestamp, pd.Series, float]:
+    entry_price = price.close.loc[entry_date]
+    trail_price = stop_calc.get_stop_price(price, trail_stop_date, offset_pct)
+    # stop_line = stop_calc.init_trail_stop(price, trail_price, entry_date, rg_end_date)
+    # stop_line = stop_calc.cap_trail_stop(stop_line, entry_price)
+    stop_line = stop_calc.init_stop_loss(price, trail_price, entry_date, rg_end_date)
+    fixed_stop_price = stop_calc.get_stop_price(price, fixed_stop_date, offset_pct)
+    target_price = get_target_price(fixed_stop_price, entry_price, r_multiplier)
+    target_exit_signal = stop_calc.target_exit_signal(price, target_price)
+    partial_exit_date = stop_line.loc[target_exit_signal].first_valid_index()
+
+    if partial_exit_date is not None:
+        stop_line.loc[partial_exit_date:] = fixed_stop_price
+    else:
+        partial_exit_date = np.nan
+
+    stop_loss_exit_signal = stop_calc.exit_signal(price, stop_line)
+    exit_signal_date = stop_line.loc[stop_loss_exit_signal].first_valid_index()
+    # signal is active until signal end date is not the current date
+    if exit_signal_date is None:
+        exit_signal_date = rg_end_date
+    stop_line = stop_line.loc[:exit_signal_date]
+
+    return stop_line, exit_signal_date, partial_exit_date, stop_loss_exit_signal, fixed_stop_price
+
+
 def process_signal_data(
     r_price_data: pd.DataFrame,
     regimes: pd.DataFrame,
@@ -476,13 +511,29 @@ def process_signal_data(
             entry_signal = rg_entry_candidates.iloc[0]
             entry_price = r_price_data.close.loc[entry_signal.entry]
 
+            # (
+            #     stop_line,
+            #     exit_signal_date,
+            #     partial_exit_date,
+            #     stop_loss_exit_signal,
+            #     fixed_stop_price,
+            # ) = draw_stop_line(
+            #     stop_calc=stop_calc,
+            #     price=r_price_data,
+            #     trail_stop_date=entry_signal.trail_stop,
+            #     fixed_stop_date=entry_signal.fixed_stop,
+            #     entry_date=entry_signal.entry,
+            #     offset_pct=offset_pct,
+            #     r_multiplier=r_multiplier,
+            #     rg_end_date=end,
+            # )
             (
                 stop_line,
                 exit_signal_date,
                 partial_exit_date,
                 stop_loss_exit_signal,
                 fixed_stop_price,
-            ) = draw_stop_line(
+            ) = draw_fixed_stop(
                 stop_calc=stop_calc,
                 price=r_price_data,
                 trail_stop_date=entry_signal.trail_stop,

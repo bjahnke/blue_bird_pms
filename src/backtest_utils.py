@@ -6,6 +6,7 @@ import typing as t
 import pandas as pd
 from matplotlib import pyplot as plt
 import pickle
+from multiprocessing import Pool
 
 
 class DataLoader:
@@ -59,41 +60,42 @@ def main_re_download_data():
     bench_data.to_csv(bench_path)
 
 
-def run_backtest():
-    sp500_wiki = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-    ticks, _ = scanner.get_wikipedia_stocks(sp500_wiki)
-    days = 59
-    interval = 15
-    interval_str = f'{interval}m'
-    bench_str = "SPY"
-
-    data_loader = DataLoader.init_from_paths('..\\other.json', '..\\base.json')
-    price_data = pd.read_csv(data_loader.history_path(bench_str, interval_str), index_col=0, header=[0, 1]).iloc[
+def load_scan_data(ticker_wiki_url, other_path, base_path, days, interval, benchmark_id):
+    """load data for scan"""
+    ticks, _ = scanner.get_wikipedia_stocks(ticker_wiki_url)
+    _interval = interval['num']
+    _interval_type = interval['type']
+    interval_str = f'{_interval}{_interval_type}'
+    data_loader = DataLoader.init_from_paths(other_path, base_path)
+    price_data = pd.read_csv(data_loader.history_path(benchmark_id, interval_str), index_col=0, header=[0, 1]).iloc[
                  1:].astype('float64')
     price_data.index = pd.to_datetime(price_data.index, utc=True)
     price_glob = PriceGlob(price_data).swap_level()
-    bench = pd.read_csv(data_loader.bench_path(bench_str, interval_str), index_col=0).astype('float64')
+    bench = pd.read_csv(data_loader.bench_path(benchmark_id, interval_str), index_col=0).astype('float64')
     bench.index = pd.to_datetime(bench.index, utc=True)
+    return ticks, price_glob, bench, benchmark_id, interval_str, _interval, data_loader
+
+
+def scan_inst(
+        _ticks: t.List[str],
+        price_glob: pd.DataFrame,
+        bench: pd.DataFrame,
+        benchmark_id: str,
+        interval: int,
+        scan_params
+):
     scan = scanner.StockDataGetter(
         # data_getter_method=lambda s: scanner.yf_get_stock_data(s, days=days, interval=interval_str),
         data_getter_method=lambda s: price_glob.get_prices(s),
     ).yield_strategy_data(
-        bench_symbol="SPY",
-        symbols=ticks,
+        bench_symbol=benchmark_id,
+        symbols=_ticks,
         # symbols=['FAST'],
         strategy=lambda pdf_, _: (
             sfcr.fc_scale_strategy(
                 price_data=scanner.data_to_relative(pdf_, bench),
                 abs_price_data=pdf_,
-                distance_pct=0.05,
-                retrace_pct=0.05,
-                swing_window=63,
-                sw_lvl=3,
-                regime_threshold=0.5,
-                trail_offset_pct=0.005,
-                r_multiplier=1.5,
-                entry_lvls=None,
-                highest_peak_lvl=3,
+                **scan_params['strategy_params']
             )
         ),
         expected_exceptions=(regime.NotEnoughDataError, sfcr.NoEntriesError)
@@ -103,21 +105,25 @@ def run_backtest():
         stat_calculator=lambda data_, entry_signals_: sfcr.calc_stats(
             data_,
             entry_signals_,
-            min_periods=50,
-            window=250,
-            percentile=0.05,
-            limit=5,
             freq=f'{interval}T',
+            **scan_params['stat_params']
             # freq='1D',
             # freq='5T',
         ),
-        relative_side_only=True
     )
+    return stat_overview_, strategy_lookup
+
+
+def multiprocess_scan(_scanner, scan_args, ticks_list, interval_str, data_loader):
+    with Pool(None) as p:
+        results = p.map(_scanner, [(ticks,) + scan_args for ticks in ticks_list])
+    _stat_overview = pd.concat([res[0] for res in results])
+    _strategy_lookup = results[0][1] | results[1][1]
     # stat_overview_ = stat_overview_.sort_values('risk_adj_returns_roll', axis=1, ascending=False)
-    stat_overview_.to_csv(data_loader.file_path(f'stat_overview_{interval_str}.csv'))
+    _stat_overview.to_csv(data_loader.file_path(f'stat_overview_{interval_str}.csv'))
     pkl_fp = data_loader.file_path('strategy_lookup.pkl')
     with open(pkl_fp, 'wb') as f:
-        pickle.dump(strategy_lookup, f)
+        pickle.dump(_strategy_lookup, f)
     print('done')
 
 
@@ -217,7 +223,32 @@ def main_roll_scan():
     print('d')
 
 
+def mp_scan_inst(_args):
+    return scan_inst(*_args)
+
+
+def split_list(alist, wanted_parts=1):
+    length = len(alist)
+    return [ alist[i*length // wanted_parts: (i+1)*length // wanted_parts]
+             for i in range(wanted_parts) ]
+
+
 if __name__ == '__main__':
-    run_backtest()
+    with open('scan_args.json', 'r') as args_fp:
+        args = json.load(args_fp)
+
+    (__ticks, __price_glob, __bench,
+     __benchmark_id, __interval_str,
+     __interval, __data_loader) = load_scan_data(**args['load_data'])
+    list_of_tickers = split_list(__ticks, 3)
+    multiprocess_scan(
+        mp_scan_inst,
+        (__price_glob, __bench, __benchmark_id, __interval, args),
+        list_of_tickers, __interval_str, __data_loader
+    )
+    # scan_res = scan_inst(*scan_args, scan_params=args)
+
+
+
 
 
