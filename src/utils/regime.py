@@ -441,24 +441,26 @@ def regime_floor_ceiling(
     fc_floor_found = hof_fc_found(
         df=df,
         cum_func='cummin',
-        fc_type=1
+        fc_type=-1,
+        retest='hi1'
     )
     fc_ceiling_found = hof_fc_found(
         df=df,
         cum_func='cummax',
-        fc_type=-1
+        fc_type=1,
+        retest='lo1'
     )
     calc_breakdown = hof_break_pullback(
         df=df,
         extreme_idx_f='idxmin',
         extreme_val_f='cummax',
-        retest='hi1'
+        retest='lo1'
     )
     calc_breakout = hof_break_pullback(
         df=df,
         extreme_idx_f='idxmax',
         extreme_val_f='cummin',
-        retest='lo1'
+        retest='hi1'
     )
 
     # Range initialisation to 1st swing
@@ -660,13 +662,19 @@ def fc_found(
     set regime to where the newest swing was DISCOVERED
 
     """
-    close_data = df.loc[rg_data.rg_ch_date: latest_hi_lo_sw_discovery, close_col]
-    close_extremes = getattr(close_data, cum_func)()
+    # close_data = df.loc[rg_data.rg_ch_date: latest_hi_lo_sw_discovery, close_col]
+    # select close prices where retests have occurred
+    close_data = df.loc[rg_data.rg_ch_date: latest_hi_lo_sw_discovery].copy()
+    close_data.loc[close_data[retest].isna(), close_col] = np.nan
+    close_data = close_data[close_col].copy()
+    close_data = close_data.ffill()
+    close_extremes = getattr(close_data, cum_func)().ffill()
     df.loc[rg_data.rg_ch_date: latest_hi_lo_sw_discovery, rg_col] = np.sign(
         close_extremes - rg_data.rg_ch_val
     )
 
     # 2. if price.cummax/cummin penetrates swing: regime turns bullish/bearish, breakout/breakdown
+    # if retest occurs beyond the rg_ch level switch sides, but check for pullback/ trend resumption
     test_break = False
     if (df.loc[rg_data.rg_ch_date: latest_hi_lo_sw_discovery, rg_col] * fc_type > 0).any():
         # Boolean flags reset
@@ -684,7 +692,8 @@ def hof_fc_found(df, cum_func, fc_type, retest, close_col='close', rg_col='rg'):
             cum_func=cum_func,
             fc_type=fc_type,
             close_col=close_col,
-            rg_col=rg_col
+            rg_col=rg_col,
+            retest=retest
         )
     return _fc_found
 

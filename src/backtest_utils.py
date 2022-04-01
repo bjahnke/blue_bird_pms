@@ -249,7 +249,7 @@ if __name__ == '__main__':
      __benchmark_id, __interval_str,
      __interval, __data_loader) = load_scan_data(**args['load_data'])
     list_of_tickers = split_list(__ticks, cpu_count()-1)
-    # list_of_tickers = split_list(['LDOS', 'CSCO', 'NLOK'], cpu_count()-1)
+    # list_of_tickers = split_list(['OKE', 'CSCO', 'NLOK'], cpu_count()-1)
     start = perf_counter()
     if multiprocess:
         multiprocess_scan(
@@ -260,7 +260,7 @@ if __name__ == '__main__':
         print(perf_counter()-start)
     else:
         scan_res = scan_inst(
-            _ticks=['LDOS'],
+            _ticks=['OKE'],
             price_glob=__price_glob,
             bench=__bench,
             benchmark_id=__benchmark_id,
