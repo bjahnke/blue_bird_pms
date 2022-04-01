@@ -29,8 +29,8 @@ def average_true_range(
     """
     _max = df[_h].combine(df[_c].shift(), max)
     _min = df[_l].combine(df[_c].shift(), min)
-    atr = (_max - _min).rolling(window=window).mean()
-    # atr = (_max - _min).ewm(span=window, min_periods=window).mean()
+    # atr = (_max - _min).rolling(window=window).mean()
+    atr = (_max - _min).ewm(span=window, adjust=False).mean()
     return atr
 
 
@@ -145,10 +145,10 @@ class BaseSwingParams(AbcSwingParams):
         extremes = getattr(price, cum_f)()
         extremes_changed = extremes != extremes.shift(1)
         peaks = price.loc[extremes_changed]
-        _atr_at_peaks = atr.copy()
-        _atr_at_peaks.loc[~extremes_changed] = np.nan
-        _atr_at_peaks = _atr_at_peaks.ffill()
-        return {'extreme_levels': extremes, 'atr_levels': _atr_at_peaks, 'peaks': peaks}
+        # _atr_at_peaks = atr.copy()
+        # _atr_at_peaks.loc[~extremes_changed] = np.nan
+        # _atr_at_peaks = _atr_at_peaks.ffill()
+        return {'extreme_levels': extremes, 'atr_levels': atr, 'peaks': peaks}
 
     def update_params(self, date_index):
         self._base_price = self._base_price.loc[self._base_price.index > date_index]
@@ -258,7 +258,6 @@ def init_swings(
             break
         i += 1
 
-
     peak_table = pd.concat(sw_list).sort_values(by='start', ascending=True).reset_index(drop=True)
     return df, peak_table
 
@@ -341,7 +340,9 @@ def get_next_peak_data(close_price, swing_params: AbcSwingParams) -> t.Dict[str,
     #         return round(retrace / divisor, round_val)
     # retrace = 1
     distance_threshold = abs(close_price - swing_params.extreme_levels) - swing_params.atr_levels
-    peak_discovery_date = close_price.loc[distance_threshold > 0].first_valid_index()
+    peak_discovery_date = close_price.loc[
+        (distance_threshold > 0)
+    ].first_valid_index()
     if peak_discovery_date is not None:
         date_query = swing_params.peaks.index <= peak_discovery_date
         price_query = swing_params.peaks == swing_params.extreme_levels.loc[peak_discovery_date]
@@ -416,9 +417,9 @@ def regime_floor_ceiling(
 ):
 
     _peak_table = peak_table.loc[peak_table.lvl == sw_lvl]
-    retest_table = peak_table.loc[peak_table.lvl == 1]
-    retest_lo_table = retest_table.loc[retest_table.type == 1]
-    retest_hi_table = retest_table.loc[retest_table.type == -1]
+    # retest_table = peak_table.loc[peak_table.lvl == 1]
+    # retest_lo_table = retest_table.loc[retest_table.type == 1]
+    # retest_hi_table = retest_table.loc[retest_table.type == -1]
     _sw_hi_peak_table = _peak_table.loc[_peak_table.type == -1]
     _sw_lo_peak_table = _peak_table.loc[_peak_table.type == 1]
 
@@ -454,13 +455,13 @@ def regime_floor_ceiling(
         df=df,
         extreme_idx_f='idxmin',
         extreme_val_f='cummax',
-        retest='lo1'
+        retest='hi1'
     )
     calc_breakout = hof_break_pullback(
         df=df,
         extreme_idx_f='idxmax',
         extreme_val_f='cummin',
-        retest='hi1'
+        retest='lo1'
     )
 
     # Range initialisation to 1st swing

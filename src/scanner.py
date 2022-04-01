@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
@@ -394,10 +396,20 @@ def yf_download_data(tickers, days, interval) -> pd.DataFrame:
     return data[["open", "high", "low", "close"]]
 
 
-def run_scanner(scanner, stat_calculator):
+@dataclass
+class ScanData:
+    stat_overview: pd.DataFrame
+    strategy_lookup: t.Dict
+    entry_table: pd.DataFrame
+    peak_table: pd.DataFrame
+
+
+def run_scanner(scanner, stat_calculator) -> ScanData:
     stat_overview = pd.DataFrame()
     entry_data = {}
     strategy_data_lookup = {}
+    entry_table = []
+    peak_table = []
     for symbol, symbol_data, bench_data, strategy_data in scanner:
         if symbol_data is None or strategy_data is None:
             continue
@@ -410,6 +422,10 @@ def run_scanner(scanner, stat_calculator):
 
         strategy_data.stat_historical = stat_sheet_historical
         strategy_data_lookup[symbol] = strategy_data
+        strategy_data.valid_entries['symbol'] = symbol
+        entry_table.append(strategy_data.valid_entries)
+        strategy_data.peak_table['symbol'] = symbol
+        peak_table.append(strategy_data.peak_table)
 
         # TODO fixed? TODO -2 because yf gives to the minute data despite before bar closes
         stat_sheet_final_scores = stat_sheet_historical.iloc[-1].copy()
@@ -437,7 +453,7 @@ def run_scanner(scanner, stat_calculator):
         #     avg_loss=signals['avg_win_roll'].loc[win_rate_query],
         # )
         # signals['risk'] = signals['risk'] * .5
-        signals['shares'] = signal_table.eqty_risk_shares(strategy_data.enhanced_price_data, 30000, signals['risk'])
+        signals['shares'] = signal_table.eqty_risk_shares(strategy_data.enhanced_price_data, 60000, signals['risk'])
         entries['partial_profit'] = (entries.partial_exit - entries.abs_entry) * (entries.shares * (2 / 3))
         entries['rem_profit'] = (entries.abs_exit - entries.abs_entry) * (entries.shares * (1 / 3))
         entries['partial_total'] = entries.partial_profit + entries.rem_profit
@@ -466,4 +482,6 @@ def run_scanner(scanner, stat_calculator):
         stat_overview = pd.concat([stat_overview, stat_sheet_final_scores.to_frame().transpose()], ignore_index=True)
 
     stat_overview = stat_overview.reset_index(drop=True)
-    return stat_overview, strategy_data_lookup
+    entry_table = pd.concat(entry_table)
+    peak_table = pd.concat(peak_table)
+    return ScanData(stat_overview, strategy_data_lookup, entry_table, peak_table)

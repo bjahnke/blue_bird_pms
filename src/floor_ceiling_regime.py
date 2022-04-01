@@ -463,10 +463,10 @@ def process_signal_data(
     # sourcery skip: merge-duplicate-blocks, remove-redundant-if
     trail_map = {
         1: mm.TrailStop(
-            pos_price_col="high", neg_price_col="low", cum_extreme="cummax", dir=1
+            pos_price_col="close", neg_price_col="low", cum_extreme="cummax", dir=1
         ),
         -1: mm.TrailStop(
-            pos_price_col="low", neg_price_col="high", cum_extreme="cummin", dir=-1
+            pos_price_col="close", neg_price_col="high", cum_extreme="cummin", dir=-1
         ),
     }
     valid_entries = pd.DataFrame(columns=entry_candidates.columns.to_list())

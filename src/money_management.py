@@ -52,7 +52,7 @@ class TrailStop:
 
     def target_exit_signal(self, price: pd.DataFrame, target_price) -> pd.Series:
         """detect where price has crossed price"""
-        return ((target_price - price[self.pos_price_col]) * self.dir) <= 0
+        return ((target_price - price['close']) * self.dir) <= 0
 
     def get_stop_price(
         self, price: pd.DataFrame, stop_date, offset_pct: float

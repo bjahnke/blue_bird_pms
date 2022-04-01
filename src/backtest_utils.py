@@ -84,7 +84,7 @@ def scan_inst(
         benchmark_id: str,
         interval: int,
         scan_params
-):
+) -> scanner.ScanData:
     scan = scanner.StockDataGetter(
         # data_getter_method=lambda s: scanner.yf_get_stock_data(s, days=days, interval=interval_str),
         data_getter_method=lambda s: price_glob.get_prices(s),
@@ -101,7 +101,7 @@ def scan_inst(
         ),
         expected_exceptions=(regime.NotEnoughDataError, sfcr.NoEntriesError)
     )
-    stat_overview_, strategy_lookup = scanner.run_scanner(
+    scan_data = scanner.run_scanner(
         scanner=scan,
         stat_calculator=lambda data_, entry_signals_: sfcr.calc_stats(
             data_,
@@ -112,22 +112,33 @@ def scan_inst(
             # freq='5T',
         ),
     )
-    return stat_overview_, strategy_lookup
+    return scan_data
 
 
 def multiprocess_scan(_scanner, scan_args, ticks_list, interval_str, data_loader):
     with Pool(None) as p:
-        results = p.map(_scanner, [(ticks,) + scan_args for ticks in ticks_list])
+        results: t.List[scanner.ScanData] = p.map(_scanner, [(ticks,) + scan_args for ticks in ticks_list])
 
     _stats = []
+    _entries = []
+    _peaks = []
     _strategy_lookup = {}
-    for _so, _sl in results:
-        _stats.append(_so)
-        _strategy_lookup |= _sl
-    _stat_overview = pd.concat([res[0] for res in results])
+    for scan_data in results:
+        _stats.append(scan_data.stat_overview)
+        _strategy_lookup |= scan_data.strategy_lookup
+        _entries.append(scan_data.entry_table)
+        _peaks.append(scan_data.peak_table)
+
+    _stat_overview = pd.concat(_stats)
+    _entries_table = pd.concat(_entries)
+    _peak_table = pd.concat(_peaks)
     # stat_overview_ = stat_overview_.sort_values('risk_adj_returns_roll', axis=1, ascending=False)
     _stat_overview.to_csv(data_loader.file_path(f'stat_overview_{interval_str}.csv'))
     pkl_fp = data_loader.file_path('strategy_lookup.pkl')
+    entry_fp = data_loader.file_path(f'entry_table_{interval_str}.pkl')
+    peak_fp = data_loader.file_path(f'peak_table_{interval_str}.pkl')
+    _entries_table.to_pickle(entry_fp)
+    _peak_table.to_pickle(peak_fp)
     with open(pkl_fp, 'wb') as f:
         pickle.dump(_strategy_lookup, f)
     print('done')
@@ -248,7 +259,7 @@ if __name__ == '__main__':
     (__ticks, __price_glob, __bench,
      __benchmark_id, __interval_str,
      __interval, __data_loader) = load_scan_data(**args['load_data'])
-    list_of_tickers = split_list(__ticks, cpu_count()-1)
+    list_of_tickers = split_list(['STX', 'V', 'EL'], cpu_count()-1)
     # list_of_tickers = split_list(['OKE', 'CSCO', 'NLOK'], cpu_count()-1)
     start = perf_counter()
     if multiprocess:
@@ -260,7 +271,7 @@ if __name__ == '__main__':
         print(perf_counter()-start)
     else:
         scan_res = scan_inst(
-            _ticks=['OKE'],
+            _ticks=['STX', 'V', 'EL'],
             price_glob=__price_glob,
             bench=__bench,
             benchmark_id=__benchmark_id,
