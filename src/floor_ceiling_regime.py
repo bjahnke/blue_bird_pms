@@ -345,7 +345,6 @@ def validate_entries(price: pd.DataFrame, entry_candidates: pd.DataFrame, direct
     entry_prices = price.loc[entry_candidates.entry, "close"]
     trail_prices = price.loc[entry_candidates.trail_stop, stop_price_col]
     valid_entry_query = ((entry_prices.values - trail_prices.values) * direction) > 0
-    # valid_entries['entry_price'] = price.loc[]
     return entry_candidates.loc[valid_entry_query]
 
 
