@@ -453,9 +453,15 @@ def run_scanner(scanner, stat_calculator) -> ScanData:
         #     avg_loss=signals['avg_win_roll'].loc[win_rate_query],
         # )
         # signals['risk'] = signals['risk'] * .5
+
+        r_multiplier = 1.5
+
         signals['shares'] = signal_table.eqty_risk_shares(strategy_data.enhanced_price_data, 60000, signals['risk'])
-        entries['partial_profit'] = (entries.partial_exit - entries.abs_entry) * (entries.shares * (2 / 3))
-        entries['rem_profit'] = (entries.abs_exit - entries.abs_entry) * (entries.shares * (1 / 3))
+
+        partial_exit_ptc = (entries.shares / r_multiplier) / entries.shares
+        remaining_exit_ptc = 1 - partial_exit_ptc
+        entries['partial_profit'] = (entries.partial_exit - entries.abs_entry) * partial_exit_ptc
+        entries['rem_profit'] = (entries.abs_exit - entries.abs_entry) * remaining_exit_ptc
         entries['partial_total'] = entries.partial_profit + entries.rem_profit
         entries['no_partial_total'] = (entries.abs_exit - entries.abs_entry) * entries.shares
         entries['total'] = entries['partial_total']

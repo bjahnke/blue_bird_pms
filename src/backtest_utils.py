@@ -42,7 +42,10 @@ class DataLoader:
 
 
 def main_re_download_data():
-    """re download stock and bench data, write to locations specified in paths.json"""
+    """
+    re download stock and bench data, write to locations specified in paths.json
+    set index to int and store date index in separate series
+    """
     sp500_wiki = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
     ticks, _ = scanner.get_wikipedia_stocks(sp500_wiki)
     data_loader = DataLoader.init_from_paths('other.json', 'base.json')
@@ -53,12 +56,24 @@ def main_re_download_data():
     history_path = data_loader.history_path(bench=bench, interval=interval_str)
     bench_path = data_loader.bench_path(bench=bench, interval=interval_str)
     downloaded_data = scanner.yf_download_data(ticks, days, interval_str)
+    downloaded_data = downloaded_data.reset_index()
+    dd_date_time = downloaded_data[downloaded_data.columns.to_list()[0]]
     bench_data = scanner.yf_get_stock_data('SPY', days, interval_str)
+    bench_data = bench_data.reset_index()
+    bd_date_time = bench_data[bench_data.columns.to_list()[0]]
+
+    assert dd_date_time.equals(bd_date_time)
+
+    downloaded_data = downloaded_data[downloaded_data.columns.to_list()[1:]]
+    bench_data = bench_data[bench_data.columns.to_list()[1:]]
+
     relative = regime.simple_relative(downloaded_data, bench_data.close)
+
     # TODO add relative data to schema
     relative.to_csv(f'{data_loader.base}\\spy_relative_history_{interval_str}.csv')
     downloaded_data.to_csv(history_path)
     bench_data.to_csv(bench_path)
+    dd_date_time.to_csv(data_loader.file_path(f'date_time_{interval_str}.csv'))
 
 
 def load_scan_data(ticker_wiki_url, other_path, base_path, days, interval, benchmark_id):
@@ -68,12 +83,9 @@ def load_scan_data(ticker_wiki_url, other_path, base_path, days, interval, bench
     _interval_type = interval['type']
     interval_str = f'{_interval}{_interval_type}'
     data_loader = DataLoader.init_from_paths(other_path, base_path)
-    price_data = pd.read_csv(data_loader.history_path(benchmark_id, interval_str), index_col=0, header=[0, 1]).iloc[
-                 1:].astype('float64')
-    price_data.index = pd.to_datetime(price_data.index, utc=True)
+    price_data = pd.read_csv(data_loader.history_path(benchmark_id, interval_str), index_col=0, header=[0, 1]).astype('float64')
     price_glob = PriceGlob(price_data).swap_level()
     bench = pd.read_csv(data_loader.bench_path(benchmark_id, interval_str), index_col=0).astype('float64')
-    bench.index = pd.to_datetime(bench.index, utc=True)
     return ticks, price_glob, bench, benchmark_id, interval_str, _interval, data_loader
 
 
@@ -247,7 +259,7 @@ def mp_scan_inst(_args):
 def split_list(alist, wanted_parts=1):
     length = len(alist)
     return [ alist[i*length // wanted_parts: (i+1)*length // wanted_parts]
-             for i in range(wanted_parts) ]
+             for i in range(wanted_parts)]
 
 
 if __name__ == '__main__':

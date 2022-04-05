@@ -371,7 +371,7 @@ def unpivot(
     """unpivot the given table given start and end dates"""
     unpivot_table = pivot_table.copy()
     unpivot_table[new_date_col] = unpivot_table.apply(
-        lambda x: pd.date_range(x[start_date_col], x[end_date_col], freq=freq), axis=1
+        lambda x: pd.RangeIndex(start=x[start_date_col], stop=x[end_date_col], step=1), axis=1
     )
     unpivot_table = unpivot_table.explode(new_date_col, ignore_index=True)
     # unpivot_table = unpivot_table.drop(columns=[start_date_col, end_date_col])

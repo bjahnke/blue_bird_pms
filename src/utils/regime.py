@@ -77,7 +77,7 @@ def relative(
     df["bmfx"] = adjustment.fillna(method="ffill")
 
     if rebase is True:
-        df["bmfx"] = df["bmfx"].div(df["bmfx"][0])
+        df["bmfx"] = df["bmfx"].div(df["bmfx"].iloc[0])
 
     # Divide absolute price by fxcy adjustment factor and rebase to first value
     _ro = "r" + str(_o)
@@ -579,10 +579,10 @@ def regime_floor_ceiling(
     if swing_discovery_date is not None:
         df.loc[swing_discovery_date:, rg] = np.where(
             ceiling_found,  # if ceiling found, highest high since rg_ch_ix
-            np.sign(df[swing_discovery_date:][_c].cummax() - fc_data.rg_ch_val.iloc[-1]),
+            np.sign(df.loc[swing_discovery_date:, _c].cummax() - fc_data.rg_ch_val.iloc[-1]),
             np.where(
                 floor_found,  # if floor found, lowest low since rg_ch_ix
-                np.sign(df[swing_discovery_date:][_c].cummin() - fc_data.rg_ch_val.iloc[-1]),
+                np.sign(df.loc[swing_discovery_date:, _c].cummin() - fc_data.rg_ch_val.iloc[-1]),
                 # np.sign(df[swing_discovery_date:][_c].rolling(5).mean() - rg_ch_list[-1]),
                 np.nan
             ),
