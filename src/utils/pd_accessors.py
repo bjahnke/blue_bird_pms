@@ -158,9 +158,9 @@ class PivotTable(Table, metaclass=ABCMeta):
         self._start_col = start_date_col
         self._end_col = end_date_col
 
-    def unpivot(self, freq, valid_dates):
+    def unpivot(self, valid_dates):
         """unpivot the dataframe, filtered by give valid dates"""
-        un_pivoted = unpivot(self.data, self._start_col, self._end_col, freq)
+        un_pivoted = unpivot(self.data, self._start_col, self._end_col)
         return un_pivoted.loc[un_pivoted.date.isin(valid_dates)].set_index("date")
 
     @property
@@ -365,7 +365,6 @@ def unpivot(
     pivot_table: pd.DataFrame,
     start_date_col: str,
     end_date_col: str,
-    freq: str,
     new_date_col="date",
 ):
     """unpivot the given table given start and end dates"""

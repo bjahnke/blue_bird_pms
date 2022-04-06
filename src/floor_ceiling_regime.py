@@ -286,7 +286,7 @@ def get_all_entry_candidates(
 
     for rg_idx, rg_info in regimes.iterrows():
         rg_entries = get_regime_signal_candidates(
-            regime=rg_info,
+            rg_data=rg_info,
             entry_table=entry_table,
             entry_lvls=entry_lvls,
             highest_peak_lvl=highest_peak_lvl,
@@ -306,19 +306,19 @@ def get_all_entry_candidates(
 
 
 def get_regime_signal_candidates(
-    regime: pd.Series, entry_table: pd.DataFrame, entry_lvls, highest_peak_lvl
+    rg_data: pd.Series, entry_table: pd.DataFrame, entry_lvls, highest_peak_lvl, entry_limit=None
 ):
     """get all regime candidates for a single regime"""
-    # set 'start'
+
     rg_entries = entry_table.loc[
-        pda.PivotRow(regime).slice(entry_table.entry)
+        pda.PivotRow(rg_data).slice(entry_table.entry)
         # & regime.pivot_row.slice(entry_table.trail_stop)
-        & (entry_table.type == regime.rg)
+        & (entry_table.type == rg_data.rg)
         & (entry_table.lvl.isin(entry_lvls))
     ].copy()
-    rg_entries["dir"] = regime.rg
+    rg_entries["dir"] = rg_data.rg
     rg_entries["fixed_stop"] = rg_entries.trail_stop
-    rg_entries = rg_entries.sort_values(by="trail_stop")
+    rg_entries = rg_entries.sort_values(by="entry")
 
     try:
         first_sig = rg_entries.iloc[0]
@@ -368,6 +368,7 @@ def draw_stop_line(
     offset_pct,
     r_multiplier,
     rg_end_date,
+    atr,
 ) -> t.Tuple[pd.Series, pd.Timestamp, pd.Timestamp, pd.Series, float]:
     """
     trail stop to entry price, then reset to fixed stop price after target price is reached
@@ -381,15 +382,14 @@ def draw_stop_line(
     :param offset_pct:
     :return:
     """
+    # _stop_modifier = atr * 2
+
     entry_price = price.close.loc[entry_date]
     trail_price = stop_calc.get_stop_price(price, trail_stop_date, offset_pct)
     stop_line = stop_calc.init_trail_stop(price, trail_price, entry_date, rg_end_date)
-    stop_line = stop_calc.cap_trail_stop(stop_line, entry_price)
-
     fixed_stop_price = stop_calc.get_stop_price(price, fixed_stop_date, offset_pct)
-
+    stop_line = stop_calc.cap_trail_stop(stop_line, entry_price, fixed_stop_price)
     target_price = get_target_price(fixed_stop_price, entry_price, r_multiplier)
-
     target_exit_signal = stop_calc.target_exit_signal(price, target_price)
     partial_exit_date = stop_line.loc[target_exit_signal].first_valid_index()
 
@@ -460,12 +460,15 @@ def process_signal_data(
     returns table of valid entries and time series containing stop loss values throughout regime
     """
     # sourcery skip: merge-duplicate-blocks, remove-redundant-if
+
+    atr = regime.average_true_range(r_price_data, 14)
+
     trail_map = {
         1: mm.TrailStop(
-            pos_price_col="close", neg_price_col="low", cum_extreme="cummax", dir=1
+            pos_price_col="close", neg_price_col="close", cum_extreme="cummax", dir=1
         ),
         -1: mm.TrailStop(
-            pos_price_col="close", neg_price_col="high", cum_extreme="cummin", dir=-1
+            pos_price_col="close", neg_price_col="close", cum_extreme="cummin", dir=-1
         ),
     }
     valid_entries = pd.DataFrame(columns=entry_candidates.columns.to_list())
@@ -525,6 +528,7 @@ def process_signal_data(
                 offset_pct=offset_pct,
                 r_multiplier=r_multiplier,
                 rg_end_date=end,
+                atr=atr
             )
             # (
             #     stop_line,
@@ -798,6 +802,48 @@ def init_signal_stop_loss_tables(
     )
 
 
+def win_rate_calc(
+    price_data: pd.DataFrame,
+    signals: pd.DataFrame,
+    min_periods,
+    round_to=2,
+):
+    """"""
+    price_data = round(price_data, round_to)
+    signal_table = pda.SignalTable(signals.copy())
+    signal_table.data["trade_count"] = signal_table.counts
+    signals_un_pivot = signal_table.unpivot(valid_dates=price_data.index)
+    signals_un_pivot = signals_un_pivot.loc[
+        ~signals_un_pivot.index.duplicated(keep="last")
+    ]
+    signals_un_pivot = signals_un_pivot[['dir', 'trade_count']]
+    signals_un_pivot = expand_index(signals_un_pivot, price_data.index)
+    signals_un_pivot.dir = signals_un_pivot.dir.fillna(0)
+
+    passive_returns_1d = ts.simple_log_returns(price_data.close)
+    signals_un_pivot["strategy_returns_1d"] = passive_returns_1d * signals_un_pivot.dir
+    # don't use entry date to calculate returns
+    signals_un_pivot.loc[signal_table.entry, "strategy_returns_1d"] = 0
+    strategy_returns_1d = signals_un_pivot.strategy_returns_1d.copy()
+    cumul_returns = ts.cumulative_returns_pct(strategy_returns_1d, min_periods)
+    # Cumulative t-stat
+    win_count = (
+        strategy_returns_1d.loc[strategy_returns_1d > 0]
+        .expanding()
+        .count()
+        .fillna(method="ffill")
+    )
+
+    total_count = (
+        strategy_returns_1d.loc[strategy_returns_1d != 0]
+        .expanding()
+        .count()
+        .fillna(method="ffill")
+    )
+    win_rate = (win_count / total_count).fillna(method="ffill")
+    return win_rate
+
+
 def calc_stats(
     price_data: pd.DataFrame,
     signals: pd.DataFrame,
@@ -805,11 +851,11 @@ def calc_stats(
     window: int,
     percentile: float,
     limit,
-    freq: str,
     round_to=2
 ) -> t.Union[None, pd.DataFrame]:
     """
     get full stats of strategy, rolling and expanding
+    :param round_to:
     :param freq:
     :param signals:
     :param price_data:
@@ -823,7 +869,7 @@ def calc_stats(
     # TODO include regime returns
     signal_table = pda.SignalTable(signals.copy())
     signal_table.data["trade_count"] = signal_table.counts
-    signals_un_pivot = signal_table.unpivot(freq=freq, valid_dates=price_data.index)
+    signals_un_pivot = signal_table.unpivot(valid_dates=price_data.index)
     signals_un_pivot = signals_un_pivot.loc[
         ~signals_un_pivot.index.duplicated(keep="last")
     ]
@@ -841,7 +887,7 @@ def calc_stats(
     cumul_passive = ts.cumulative_returns_pct(passive_returns_1d, min_periods)
     cumul_returns = ts.cumulative_returns_pct(strategy_returns_1d, min_periods)
     cumul_excess = cumul_returns - cumul_passive - 1
-    cumul_returns_pct = ts.cumulative_returns_pct(strategy_returns_1d, min_periods)
+    cumul_returns_pct = cumul_returns.copy()
 
     # Robustness metrics
     grit_expanding = ts.expanding_grit(cumul_returns)

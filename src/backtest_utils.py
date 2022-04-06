@@ -118,7 +118,6 @@ def scan_inst(
         stat_calculator=lambda data_, entry_signals_: sfcr.calc_stats(
             data_,
             entry_signals_,
-            freq=f'{interval}T',
             **scan_params['stat_params']
             # freq='1D',
             # freq='5T',
@@ -263,10 +262,12 @@ def split_list(alist, wanted_parts=1):
 
 
 if __name__ == '__main__':
-    multiprocess = True
-
     with open('scan_args.json', 'r') as args_fp:
         args = json.load(args_fp)
+
+    scanner_settings = args['scanner_settings']
+
+    multiprocess = scanner_settings['multiprocess']
 
     (__ticks, __price_glob, __bench,
      __benchmark_id, __interval_str,
@@ -283,7 +284,7 @@ if __name__ == '__main__':
         print(perf_counter()-start)
     else:
         scan_res = scan_inst(
-            _ticks=['STX', 'V', 'EL'],
+            _ticks=scanner_settings['test_symbols'],
             price_glob=__price_glob,
             bench=__bench,
             benchmark_id=__benchmark_id,

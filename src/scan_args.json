@@ -16,7 +16,7 @@
     "swing_window": 63,
     "sw_lvl": 3,
     "regime_threshold": 0.5,
-    "trail_offset_pct": 0.005,
+    "trail_offset_pct": 0.01,
     "r_multiplier": 1.5,
     "entry_lvls": [2, 3],
     "highest_peak_lvl": 3
@@ -26,5 +26,9 @@
     "window": 256,
     "percentile": 0.05,
     "limit": 5
+  },
+  "scanner_settings": {
+    "multiprocess": true,
+    "test_symbols": ["STX", "V", "EL"]
   }
 }

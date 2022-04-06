@@ -55,14 +55,16 @@ class TrailStop:
         return ((target_price - price['close']) * self.dir) <= 0
 
     def get_stop_price(
-        self, price: pd.DataFrame, stop_date, offset_pct: float
+        self, price: pd.DataFrame, stop_date, offset_pct: float,
     ) -> float:
         """calculate stop price given a date and percent to offset the stop point from the peak"""
         pct_from_peak = 1 - (offset_pct * self.dir)
-        return price[self.neg_price_col].at[stop_date] * pct_from_peak
+        return price['close'].at[stop_date] * pct_from_peak
 
-    def cap_trail_stop(self, trail_data: pd.Series, cap_price) -> pd.Series:
+    def cap_trail_stop(self, trail_data: pd.Series, cap_price, set_price=None) -> pd.Series:
         """apply cap to trail stop"""
+        if set_price is None:
+            set_price = cap_price
         trail_data.loc[((trail_data - cap_price) * self.dir) > 0] = cap_price
         return trail_data
 

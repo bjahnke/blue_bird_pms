@@ -120,7 +120,6 @@ def rolling_plot(
     stop_loss_t,
     peak_table,
     ticker,
-    freq='15T',
     plot_rolling_lag=True,
     plot_loop=True
 
@@ -150,7 +149,7 @@ def rolling_plot(
 
     pt = pda.PeakTable(peak_table)
     pt.data['px'] = pt.start_price(ndf)
-    pt = pt.unpivot(freq, ndf.index)
+    pt = pt.unpivot(ndf.index)
     _shi_px = pt.loc[(pt.type == -1)]
     _shi_2 = _shi_px.loc[(_shi_px.lvl == 2)]
     _shi_3 = _shi_px.loc[(_shi_px.lvl == 3)]
@@ -422,22 +421,20 @@ def run_scanner(scanner, stat_calculator) -> ScanData:
 
         strategy_data.stat_historical = stat_sheet_historical
         strategy_data_lookup[symbol] = strategy_data
-        strategy_data.valid_entries['symbol'] = symbol
-        entry_table.append(strategy_data.valid_entries)
+        signals['symbol'] = symbol
+
         strategy_data.peak_table['symbol'] = symbol
         peak_table.append(strategy_data.peak_table)
 
-        # TODO fixed? TODO -2 because yf gives to the minute data despite before bar closes
         stat_sheet_final_scores = stat_sheet_historical.iloc[-1].copy()
         stat_sheet_final_scores['symbol'] = symbol
         signal_table = pda.SignalTable(signals)
         price_table = PriceTable(symbol_data, '')
 
-        entries = signals
-        entries['abs_entry'] = signal_table.entry_prices(price_table)
-        entries['abs_exit'] = signal_table.exit_prices(price_table)
-        entries['abs_return'] = signal_table.static_returns(price_table)
-        entries['partial_exit'] = signal_table.partial_exit_prices(price_table)
+        signals['abs_entry'] = signal_table.entry_prices(price_table)
+        signals['abs_exit'] = signal_table.exit_prices(price_table)
+        signals['abs_return'] = signal_table.static_returns(price_table)
+        signals['partial_exit'] = signal_table.partial_exit_prices(price_table)
 
         risk = signal_table.pyramid_all(-0.0075)
 
@@ -458,17 +455,17 @@ def run_scanner(scanner, stat_calculator) -> ScanData:
 
         signals['shares'] = signal_table.eqty_risk_shares(strategy_data.enhanced_price_data, 60000, signals['risk'])
 
-        partial_exit_ptc = (entries.shares / r_multiplier) / entries.shares
+        partial_exit_ptc = (signals.shares / r_multiplier) / signals.shares
         remaining_exit_ptc = 1 - partial_exit_ptc
-        entries['partial_profit'] = (entries.partial_exit - entries.abs_entry) * partial_exit_ptc
-        entries['rem_profit'] = (entries.abs_exit - entries.abs_entry) * remaining_exit_ptc
-        entries['partial_total'] = entries.partial_profit + entries.rem_profit
-        entries['no_partial_total'] = (entries.abs_exit - entries.abs_entry) * entries.shares
-        entries['total'] = entries['partial_total']
-        entries.loc[pd.isna(entries.total), 'total'] = entries.loc[pd.isna(entries.total), 'no_partial_total']
-        entries['total'] = entries.total.cumsum()
+        signals['partial_profit'] = (signals.partial_exit - signals.abs_entry) * partial_exit_ptc
+        signals['rem_profit'] = (signals.abs_exit - signals.abs_entry) * remaining_exit_ptc
+        signals['partial_total'] = signals.partial_profit + signals.rem_profit
+        signals['no_partial_total'] = (signals.abs_exit - signals.abs_entry) * signals.shares
+        signals['my_total'] = signals['partial_total']
+        signals.loc[pd.isna(signals.my_total), 'my_total'] = signals.loc[pd.isna(signals.my_total), 'no_partial_total']
+        signals['total'] = signals.my_total.cumsum()
 
-        entry_data[symbol] = entries
+        entry_data[symbol] = signals
 
         # fig, axes = plt.subplots(nrows=3, ncols=1)
 
@@ -484,8 +481,9 @@ def run_scanner(scanner, stat_calculator) -> ScanData:
         #     '': abs(symbol_data.close - symbol_data.stop_loss)
         # }).plot(use_index=False, ax=axes[2])
         # plt.show()
-        stat_sheet_final_scores['weight_total'] = entries.total.iloc[-1]
+        stat_sheet_final_scores['weight_total'] = signals.total.iloc[-1]
         stat_overview = pd.concat([stat_overview, stat_sheet_final_scores.to_frame().transpose()], ignore_index=True)
+        entry_table.append(signals)
 
     stat_overview = stat_overview.reset_index(drop=True)
     entry_table = pd.concat(entry_table)
