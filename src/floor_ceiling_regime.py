@@ -282,12 +282,11 @@ def get_all_entry_candidates(
     raw_signals_list = []
 
     # rename the table prior to collecting entries
-    entry_table = peaks.rename(columns={"start": "trail_stop", "end": "entry"})
 
     for rg_idx, rg_info in regimes.iterrows():
-        rg_entries = get_regime_signal_candidates(
+        rg_entries = retest_swing_candidates(
             rg_data=rg_info,
-            entry_table=entry_table,
+            peak_table=peaks,
             entry_lvls=entry_lvls,
             highest_peak_lvl=highest_peak_lvl,
         )
@@ -301,7 +300,7 @@ def get_all_entry_candidates(
     except ValueError:
         raise NoEntriesError
 
-    signal_candidates = signal_candidates.drop(columns=["lvl", "type"])
+    signal_candidates = signal_candidates[['entry', 'en_px', 'dir', 'trail_stop', 'fixed_stop']]
     return signal_candidates
 
 
@@ -332,6 +331,70 @@ def get_regime_signal_candidates(
     ]
     try:
         rg_entries.fixed_stop.iat[0] = prior_major_peaks.trail_stop.iat[-1]
+    except IndexError:
+        # skip if no prior level 3 peaks
+        pass
+    return rg_entries
+
+
+def retest_swing_candidates(
+        rg_data: pd.Series,
+        peak_table: pd.DataFrame,
+        entry_lvls,
+        highest_peak_lvl,
+        entry_limit=None,
+):
+    """
+    enter on swing hi discovery if regime is bearish,
+    which is more likely to be a better price, theoretically
+    """
+    rg_peaks = peak_table.loc[peak_table.end < rg_data.end]
+    rg_entries = rg_peaks.loc[
+        (rg_peaks.end > rg_data.start)
+        & (rg_peaks.lvl.isin(entry_lvls))
+        & (rg_peaks.type != rg_data.rg)
+    ].copy()
+
+    if rg_entries.empty:
+        return rg_entries
+
+    rg_entries['dir'] = rg_data.rg
+    rg_entries = rg_entries.rename(columns={'end': 'entry'})
+
+    # set stop loss reference date to a prior (opposite) swing
+    # that exceeds entry price
+    stop_peaks = rg_peaks.loc[
+        (rg_peaks.type == rg_data.rg) &
+        (rg_peaks.lvl == 2)
+    ]
+
+    rg_entries['trail_stop'] = np.nan
+    for idx, entry_data in rg_entries.iterrows():
+        prev_stop_peaks = stop_peaks.loc[stop_peaks.end <= entry_data.entry]
+        i = len(prev_stop_peaks) - 1
+        while i >= 0:
+            prev_stop = prev_stop_peaks.iloc[i]
+            if ((entry_data.en_px - prev_stop.st_px) * rg_data.rg) > 0:
+                rg_entries.at[idx, 'trail_stop'] = prev_stop.start
+                break
+            i -= 1
+
+    # TODO what does it look like when no stop within entry? (fixed stop is nan)
+    rg_entries = rg_entries.dropna()
+    rg_entries['fixed_stop'] = rg_entries.trail_stop
+
+    if rg_entries.empty:
+        return rg_entries
+
+    first_sig = rg_entries.iloc[0]
+    prior_major_peaks = rg_peaks.loc[
+        (rg_peaks.end < first_sig.trail_stop)
+        & (rg_peaks.lvl == highest_peak_lvl)
+        & (rg_peaks.type == first_sig.type)
+        & (((first_sig.entry - rg_peaks.st_px) * rg_data.rg) > 0)
+    ]
+    try:
+        rg_entries.fixed_stop.iat[0] = prior_major_peaks.start.iat[-1]
     except IndexError:
         # skip if no prior level 3 peaks
         pass

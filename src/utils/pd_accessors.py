@@ -161,7 +161,9 @@ class PivotTable(Table, metaclass=ABCMeta):
     def unpivot(self, valid_dates):
         """unpivot the dataframe, filtered by give valid dates"""
         un_pivoted = unpivot(self.data, self._start_col, self._end_col)
-        return un_pivoted.loc[un_pivoted.date.isin(valid_dates)].set_index("date")
+        un_pivoted.index = un_pivoted.date
+        un_pivoted = un_pivoted.drop('date', axis=1)
+        return un_pivoted
 
     @property
     def count(self) -> int:
@@ -356,8 +358,8 @@ class PeakTable(PivotTable):
         _pt = self.data.copy()
         return np.where(
             _pt.type == 1,
-            price_data.low.loc[_pt[date_col]],
-            price_data.high.loc[_pt[date_col]],
+            price_data.close.loc[_pt[date_col]],
+            price_data.close.loc[_pt[date_col]],
         )
 
 
@@ -370,7 +372,7 @@ def unpivot(
     """unpivot the given table given start and end dates"""
     unpivot_table = pivot_table.copy()
     unpivot_table[new_date_col] = unpivot_table.apply(
-        lambda x: pd.RangeIndex(start=x[start_date_col], stop=x[end_date_col], step=1), axis=1
+        lambda x: pd.RangeIndex(start=x[start_date_col], stop=x[end_date_col]+1, step=1), axis=1
     )
     unpivot_table = unpivot_table.explode(new_date_col, ignore_index=True)
     # unpivot_table = unpivot_table.drop(columns=[start_date_col, end_date_col])

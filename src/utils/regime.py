@@ -145,10 +145,10 @@ class BaseSwingParams(AbcSwingParams):
         extremes = getattr(price, cum_f)()
         extremes_changed = extremes != extremes.shift(1)
         peaks = price.loc[extremes_changed]
-        # _atr_at_peaks = atr.copy()
-        # _atr_at_peaks.loc[~extremes_changed] = np.nan
-        # _atr_at_peaks = _atr_at_peaks.ffill()
-        return {'extreme_levels': extremes, 'atr_levels': atr, 'peaks': peaks}
+        _atr_at_peaks = atr.copy()
+        _atr_at_peaks.loc[~extremes_changed] = np.nan
+        _atr_at_peaks = _atr_at_peaks.ffill()
+        return {'extreme_levels': extremes, 'atr_levels': _atr_at_peaks, 'peaks': peaks}
 
     def update_params(self, date_index):
         self._base_price = self._base_price.loc[self._base_price.index > date_index]
@@ -220,23 +220,22 @@ def init_swings(
     :return:
     """
     sw_list = []
-    atr = average_true_range(df, n_num)
+
     _px = df[['close', 'high', 'low']].copy()
     _px['avg_px'] = df[['high', 'low', 'close']].mean(axis=1)
 
-    _atr_valid_dt = atr.first_valid_index()
-    _px = _px.loc[_atr_valid_dt:]
-    _atr = atr.loc[_atr_valid_dt:]
-
     # sw_hi_params = BaseSwingParams(_atr, _px.avg_px, -1)
     # sw_lo_params = BaseSwingParams(_atr, _px.avg_px, 1)
-
-    vlty_lookup = {3: 5, 2: 2.5, 1: 1}
-
+    vlty_mult = {3: 5, 2: 2.5, 1: 1}
+    vlty_windows = {3: n_num, 2: n_num//2, 1: n_num//4}
     i = 1
     while True:
-        vlty_mult = vlty_lookup[i]
-        adjusted_atr = _atr * vlty_mult
+        vlty_window = vlty_windows[i]
+        atr = average_true_range(df, vlty_window)
+        _atr_valid_dt = atr.first_valid_index()
+        _px = _px.loc[_atr_valid_dt:]
+        _atr = atr.loc[_atr_valid_dt:]
+        adjusted_atr = _atr * vlty_mult[i]
 
         sw_hi_params = BaseSwingParams(adjusted_atr, _px.avg_px, -1)
         sw_lo_params = BaseSwingParams(adjusted_atr, _px.avg_px, 1)
@@ -258,7 +257,7 @@ def init_swings(
             break
         i += 1
 
-    peak_table = pd.concat(sw_list).sort_values(by='start', ascending=True).reset_index(drop=True)
+    peak_table = pd.concat(sw_list).sort_values(by='end', ascending=True).reset_index(drop=True)
     return df, peak_table
 
 
@@ -501,8 +500,8 @@ def regime_floor_ceiling(
         # CLASSIC CEILING DISCOVERY
         if ceiling_found is False:
             # Classic ceiling test
-            floors = fc_data.loc[fc_data.type == 1]
-            res = fc_find_ceiling(fc_ix=floors.fc_date.iloc[-1], latest_swing=sw_hi_data)
+            current_floor = fc_data.loc[fc_data.type == 1].iloc[-1]
+            res = fc_find_ceiling(fc_ix=current_floor.fc_date, latest_swing=sw_hi_data)
             if len(res) > 0:
                 # Boolean flags reset
                 ceiling_found = True
@@ -649,6 +648,21 @@ def hof_find_fc(df, price_col, extreme_func, stdev, sw_type, threshold):
     return _fc_found
 
 
+def assign_retest_vals(c_data, retest_col, close_col):
+    rt = c_data.copy()
+    rt.loc[rt[retest_col].isna(), close_col] = np.nan
+    rt = rt[close_col].copy()
+    rt = rt.ffill()
+    _cum_func = 'cummax' if 'lo' in retest_col else 'cummin'
+    return getattr(rt, _cum_func)().ffill()
+
+
+def normal_assign(c_data, retest_col, close_col):
+    _cum_func = 'cummax' if 'lo' in retest_col else 'cummin'
+    cd = c_data[close_col].copy()
+    return getattr(cd, _cum_func)()
+
+
 def fc_found(
         df,
         latest_hi_lo_sw_discovery,
@@ -665,13 +679,14 @@ def fc_found(
     """
     # close_data = df.loc[rg_data.rg_ch_date: latest_hi_lo_sw_discovery, close_col]
     # select close prices where retests have occurred
-    close_data = df.loc[rg_data.rg_ch_date: latest_hi_lo_sw_discovery].copy()
-    close_data.loc[close_data[retest].isna(), close_col] = np.nan
-    close_data = close_data[close_col].copy()
-    close_data = close_data.ffill()
-    close_extremes = getattr(close_data, cum_func)().ffill()
+    close_data = df.loc[rg_data.rg_ch_date: latest_hi_lo_sw_discovery]
+    # lo_retest = assign_retest_vals(close_data, 'lo1', close_col)
+    # hi_retest = assign_retest_vals(close_data, 'hi1', close_col)
+    # rt = assign_retest_vals(close_data, retest, close_col)
+
+    rt = normal_assign(close_data, retest, close_col)
     df.loc[rg_data.rg_ch_date: latest_hi_lo_sw_discovery, rg_col] = np.sign(
-        close_extremes - rg_data.rg_ch_val
+        rt - rg_data.rg_ch_val
     )
 
     # 2. if price.cummax/cummin penetrates swing: regime turns bullish/bearish, breakout/breakdown
