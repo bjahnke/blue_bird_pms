@@ -65,7 +65,7 @@ class TrailStop:
         """apply cap to trail stop"""
         if set_price is None:
             set_price = cap_price
-        trail_data.loc[((trail_data - cap_price) * self.dir) > 0] = cap_price
+        trail_data.loc[((trail_data - cap_price) * self.dir) > 0] = set_price
         return trail_data
 
 

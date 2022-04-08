@@ -12,7 +12,6 @@ import typing as t
 import src.utils.pd_accessors as pda
 from abc import ABC, abstractmethod
 
-
 class NotEnoughDataError(Exception):
     """unable to collect enough swing data to initialize strategy"""
 
@@ -29,8 +28,7 @@ def average_true_range(
     """
     _max = df[_h].combine(df[_c].shift(), max)
     _min = df[_l].combine(df[_c].shift(), min)
-    # atr = (_max - _min).rolling(window=window).mean()
-    atr = (_max - _min).ewm(span=window, adjust=False).mean()
+    atr = (_max - _min).rolling(window=window).mean()
     return atr
 
 
@@ -257,7 +255,7 @@ def init_swings(
             break
         i += 1
 
-    peak_table = pd.concat(sw_list).sort_values(by='end', ascending=True).reset_index(drop=True)
+    peak_table = pd.concat(sw_list).sort_values(by='start', ascending=True).reset_index(drop=True)
     return df, peak_table
 
 
@@ -415,7 +413,7 @@ def regime_floor_ceiling(
         _c: str = "close",
 ):
 
-    _peak_table = peak_table.loc[peak_table.lvl == sw_lvl]
+    _peak_table = peak_table.loc[peak_table.lvl == sw_lvl].sort_values('start')
     # retest_table = peak_table.loc[peak_table.lvl == 1]
     # retest_lo_table = retest_table.loc[retest_table.type == 1]
     # retest_hi_table = retest_table.loc[retest_table.type == -1]
@@ -495,12 +493,16 @@ def regime_floor_ceiling(
         # asymmetric swing list: default to last swing if shorter list
         sw_lo_data = _sw_lo_peak_table.iloc[_lo_idxs[i]]
         sw_hi_data = _sw_hi_peak_table.iloc[_hi_idxs[i]]
-        swing_discovery_date = np.maximum(sw_lo_data.end, sw_hi_data.end)  # latest swing index
+        swing_discovery_date = np.maximum(sw_lo_data.start, sw_hi_data.start)  # latest swing index
+        latest_swing_data = sw_lo_data if swing_discovery_date == sw_lo_data.start else sw_hi_data
 
         # CLASSIC CEILING DISCOVERY
         if ceiling_found is False:
             # Classic ceiling test
-            current_floor = fc_data.loc[fc_data.type == 1].iloc[-1]
+            current_floor = fc_data.loc[
+                (fc_data.type == 1) &
+                (fc_data.fc_date < sw_hi_data.start)
+            ].iloc[-1]
             res = fc_find_ceiling(fc_ix=current_floor.fc_date, latest_swing=sw_hi_data)
             if len(res) > 0:
                 # Boolean flags reset
@@ -514,7 +516,7 @@ def regime_floor_ceiling(
         elif ceiling_found is True:
             res, df = fc_ceiling_found(
                 rg_ch_data=fc_data.iloc[-1],
-                latest_hi_lo_sw_discovery=swing_discovery_date
+                latest_hi_lo_sw_discovery=latest_swing_data.end
             )
             if res is True:
                 breakout = True
@@ -524,13 +526,16 @@ def regime_floor_ceiling(
         if breakout is True:
             df = calc_breakout(
                 rg_ch_data=fc_data.iloc[-1],
-                latest_sw_discovery=swing_discovery_date
+                latest_sw_discovery=latest_swing_data.end
             )
 
         # CLASSIC FLOOR DISCOVERY
         if floor_found is False:
             # Classic floor test
-            current_ceiling = fc_data.loc[fc_data.type == -1].iloc[-1]
+            current_ceiling = fc_data.loc[
+                (fc_data.type == -1) &
+                (fc_data.fc_date < sw_lo_data.start)
+            ].iloc[-1]
             res = fc_find_floor(fc_ix=current_ceiling.fc_date, latest_swing=sw_lo_data)
             if len(res) > 0:
                 # Boolean flags reset
@@ -543,7 +548,7 @@ def regime_floor_ceiling(
         elif floor_found is True:
             res, df = fc_floor_found(
                 rg_ch_data=fc_data.iloc[-1],
-                latest_hi_lo_sw_discovery=swing_discovery_date
+                latest_hi_lo_sw_discovery=latest_swing_data.end
             )
             if res is True:
                 breakdown = True
@@ -553,10 +558,24 @@ def regime_floor_ceiling(
         if breakdown is True:
             df = calc_breakdown(
                 rg_ch_data=fc_data.iloc[-1],
-                latest_sw_discovery=swing_discovery_date
+                latest_sw_discovery=latest_swing_data.end
             )
     #             breakdown = False
     #             breakout = True
+
+        # try:
+        #     _fc_data = fc_data.iloc[2:]
+        #     df[rg_ch] = np.nan
+        #     floors_data = _fc_data.loc[_fc_data.type == 1]
+        #     ceilings_data = _fc_data.loc[_fc_data.type == -1]
+        #     df.loc[floors_data.fc_date, flr] = floors_data.fc_val.values
+        #     df.loc[ceilings_data.fc_date, clg] = ceilings_data.fc_val.values
+        #     df.loc[_fc_data.rg_ch_date, rg_ch] = _fc_data.rg_ch_val.values
+        #     df[rg_ch] = df[rg_ch].fillna(method="ffill")
+        #     df[['hi3', 'lo3', flr, clg, rg_ch, 'close', 'rg']].plot(secondary_y='rg', style=['r.', 'g.', 'k^', 'kv'])
+        #     pass
+        # except:
+        #     pass
 
     # no data excluding the initialized floor/ceiling
     if len(fc_data.iloc[2:]) == 0:
@@ -620,21 +639,23 @@ def find_fc(
     res = {}
 
     # try again with next swing if fc > current swing
-    if fc_ix >= latest_swing.start:
-        return res
+    # if fc_ix >= latest_swing.start:
+    #     return res
 
     data_range = df.loc[fc_ix: latest_swing.start, price_col]
-    extreme_rows = data_range.loc[data_range == getattr(data_range, extreme_func)()]
-    fc_val = extreme_rows.iloc[0]
-    fc_date = extreme_rows.index[0]
-    fc_test = round((latest_swing.st_px - fc_val) / stdev[latest_swing.start], 1)
+    # extreme_rows = data_range.loc[data_range == getattr(data_range, extreme_func)()]
+    extreme_val = getattr(data_range, extreme_func)()
+    extreme_idx = getattr(data_range, f'idx{extreme_func}')()
+    # fc_val = extreme_rows.iloc[0]
+    # fc_date = extreme_rows.index[0]
+    fc_test = round((latest_swing.st_px - extreme_val) / stdev[latest_swing.start], 1)
     fc_test *= sw_type
 
     if fc_test >= threshold:
         res = {
             'test': fc_test,
-            'fc_val': fc_val,
-            'fc_date': fc_date,
+            'fc_val': extreme_val,
+            'fc_date': extreme_idx,
             'rg_ch_date': latest_swing.end,
             'rg_ch_val': latest_swing.st_px,
             'type': sw_type
@@ -746,11 +767,10 @@ def break_pullback(
 
     # brkout_low = df[brkout_high_ix: latest_hi_lo_swing][close_col].cummin()
     # break_vals = df.loc[break_extreme_date: latest_hi_lo_sw_discovery, close_col]
-    break_vals = df.loc[break_extreme_date: latest_hi_lo_sw_discovery, retest].ffill()
+    break_vals = df.loc[break_extreme_date: latest_hi_lo_sw_discovery, close_col].ffill()
     break_val = getattr(break_vals, extreme_val_func)()
 
     df.loc[break_extreme_date: latest_hi_lo_sw_discovery, rg_col] = np.sign(
         break_val - rg_ch_data.rg_ch_val
     )
     return df
-

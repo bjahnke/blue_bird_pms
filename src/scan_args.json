@@ -29,6 +29,7 @@
   },
   "scanner_settings": {
     "multiprocess": true,
-    "test_symbols": ["DLR"]
+    "test_symbols": ["FITB"],
+    "restrict_side": -1
   }
 }

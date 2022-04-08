@@ -94,8 +94,7 @@ def scan_inst(
         price_glob: t.Any,
         bench: pd.DataFrame,
         benchmark_id: str,
-        interval: int,
-        scan_params
+        scan_params,
 ) -> scanner.ScanData:
     scan = scanner.StockDataGetter(
         # data_getter_method=lambda s: scanner.yf_get_stock_data(s, days=days, interval=interval_str),
@@ -122,6 +121,7 @@ def scan_inst(
             # freq='1D',
             # freq='5T',
         ),
+        restrict_side=scan_params['scanner_settings']['restrict_side']
     )
     return scan_data
 
@@ -278,17 +278,20 @@ if __name__ == '__main__':
     if multiprocess:
         multiprocess_scan(
             mp_scan_inst,
-            (__price_glob, __bench, __benchmark_id, __interval, args),
+            (__price_glob, __bench, __benchmark_id, args),
             list_of_tickers, __interval_str, __data_loader
         )
         print(perf_counter()-start)
     else:
+        if scanner_settings['test_symbols'] is False:
+            t = __ticks[30:60]
+        else:
+            t = scanner_settings['test_symbols']
         scan_res = scan_inst(
-            _ticks=scanner_settings['test_symbols'],
+            _ticks=t,
             price_glob=__price_glob,
             bench=__bench,
             benchmark_id=__benchmark_id,
-            interval=__interval,
             scan_params=args
         )
 

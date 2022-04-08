@@ -403,6 +403,7 @@ def retrace_swing(
 
 def test_distance(base_sw_val, hh_ll, dist_vol, dist_pct):
     """
+    when swing low is latest, does the highest high afterward exceed the distance test?
     :param ud: direction
     :param base_sw_val: base, swing hi/lo
     :param hh_ll: lowest low or highest high
@@ -454,7 +455,7 @@ class LatestSwingData:
         self.price_col = price_col
 
     @classmethod
-    def init_from_latest_swing(cls, df, shi, slo, rt_hi, rt_lo, _h='high', _l='low', _c='close'):
+    def init_from_latest_swing(cls, df, shi='hi3', slo='lo3', rt_hi='hi1', rt_lo='lo1', _h='high', _l='low', _c='close'):
         shi_query = pd.notnull(df[shi])
         slo_query = pd.notnull(df[slo])
         try:
@@ -552,18 +553,16 @@ def old_init_swings(
 
     df = historical_swings(df, lvl_limit=lvl_limit)
     df = cleanup_latest_swing(df, shi=shi, slo=slo, rt_hi=rt_hi, rt_lo=rt_lo)
-
-    latest_sw_vars = LatestSwingData.init_from_latest_swing(df, shi, slo, rt_hi, rt_lo)
-
-    volatility_series = average_true_range(df=df, window=n_num)
-    _dist_vol_series = volatility_series * 5
-    df['rol_hi'] = df['high'].rolling(n_num).max()
-    df['rol_lo'] = df['low'].rolling(n_num).min()
-
-    df['hi_vol'] = (df['rol_hi'] - _dist_vol_series).ffill()
-    df['lo_vol'] = (df['rol_lo'] + _dist_vol_series).ffill()
-    _retrace_vol_series = volatility_series * 2.5
-    vlty = round(volatility_series[latest_sw_vars.extreme_date], 2)
+    # latest_sw_vars = LatestSwingData.init_from_latest_swing(df, shi, slo, rt_hi, rt_lo)
+    # volatility_series = average_true_range(df=df, window=n_num)
+    # _dist_vol_series = volatility_series * 5
+    # df['rol_hi'] = df['high'].rolling(n_num).max()
+    # df['rol_lo'] = df['low'].rolling(n_num).min()
+    #
+    # df['hi_vol'] = (df['rol_hi'] - _dist_vol_series).ffill()
+    # df['lo_vol'] = (df['rol_lo'] + _dist_vol_series).ffill()
+    # _retrace_vol_series = volatility_series * 2.5
+    # vlty = round(volatility_series[latest_sw_vars.extreme_date], 2)
 
     # px = df.loc[bs_dt: hh_ll_dt, price_col]
     # vol = _dist_vol_series.loc[bs_dt: hh_ll_dt]
@@ -579,23 +578,23 @@ def old_init_swings(
     #     'vol_lvl': vol_lvl
     # })
     # _t['base'] = base_sw
-    discovery_lag = None
-    dist_vol = vlty * 5
-    res = latest_sw_vars.test_distance(dist_vol, dist_pct)
-    if res is True:
-        retrace_vol = vlty * 2.5
-        df, retest_swing_lag = latest_sw_vars.retest_swing(df)
-        df, retrace_swing_lag = latest_sw_vars.retrace_swing(
-            df, vlty=vlty, retrace_vol=retrace_vol, retrace_pct=retrace_pct
-        )
-        lag_compare = []
-        if retest_swing_lag is not None:
-            lag_compare.append(retest_swing_lag)
-
-        if retrace_swing_lag is not None:
-            lag_compare.append(retrace_swing_lag)
-
-        if len(lag_compare) > 0:
-            discovery_lag = np.maximum(*lag_compare)
+    # discovery_lag = None
+    # dist_vol = vlty * 5
+    # res = latest_sw_vars.test_distance(dist_vol, dist_pct)
+    # if res is True:
+    #     retrace_vol = vlty * 2.5
+    #     df, retest_swing_lag = latest_sw_vars.retest_swing(df)
+    #     df, retrace_swing_lag = latest_sw_vars.retrace_swing(
+    #         df, vlty=vlty, retrace_vol=retrace_vol, retrace_pct=retrace_pct
+    #     )
+    #     lag_compare = []
+    #     if retest_swing_lag is not None:
+    #         lag_compare.append(retest_swing_lag)
+    #
+    #     if retrace_swing_lag is not None:
+    #         lag_compare.append(retrace_swing_lag)
+    #
+    #     if len(lag_compare) > 0:
+    #         discovery_lag = np.maximum(*lag_compare)
 
     return df, discovery_lag

@@ -227,7 +227,7 @@ class SignalTable(PivotTable):
         for rg_id in self.data.rg_id.unique():
             signals_by_rg = self.data.loc[self.data.rg_id == rg_id]
             if signals_by_rg.empty:
-                break
+                continue
             amortized_risk = SignalTable(signals_by_rg).pyramid(base_risk)
             risk.append(amortized_risk)
         risk = pd.concat(risk).reset_index(drop=True)

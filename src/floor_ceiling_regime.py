@@ -11,6 +11,7 @@ import src.utils.pd_accessors as pda
 from src.utils import trading_stats as ts, regime
 import src.utils.regime
 import src.money_management as mm
+import old_regime_functions as orf
 
 
 def all_retest_swing(df, rt: str, dist_pct, retrace_pct, n_num):
@@ -282,11 +283,12 @@ def get_all_entry_candidates(
     raw_signals_list = []
 
     # rename the table prior to collecting entries
+    entry_table = peaks.rename(columns={"start": "trail_stop", "end": "entry"})
 
     for rg_idx, rg_info in regimes.iterrows():
-        rg_entries = retest_swing_candidates(
+        rg_entries = get_regime_signal_candidates(
             rg_data=rg_info,
-            peak_table=peaks,
+            entry_table=entry_table,
             entry_lvls=entry_lvls,
             highest_peak_lvl=highest_peak_lvl,
         )
@@ -676,6 +678,39 @@ def reduce_regime_candidates(
         entry_signal: t.Union[pd.Series, None],
         rg_info: pd.Series,
         rg_peak_table: pd.DataFrame,
+):
+    """
+    logic for reducing regime candidates,
+    For bull regimes, new entries must be higher than previous entry, unless first entry (vice versa for bear)
+    additionally:
+    # if prev entry check yields no new entries and a new leg exists after it
+    # get all entries after most recent new leg
+    # otherwise, only get oll candidates after new leg if the next entry is
+    # after the leg
+
+    """
+    entry_prices = price_data.loc[rg_entry_candidates.entry, "close"]
+    try:
+        # filter for entries that are within the previous entry
+        new_rg_entry_candidates = rg_entry_candidates.loc[
+            ((entry_prices.values - entry_price) * rg_info.rg) > 0
+        ]
+        # get new legs
+        _sw_after_entry = rg_peak_table.loc[rg_peak_table.end > entry_signal.entry]
+    except TypeError:
+        # previous entry data is none (it is the first signal) make no new changes
+        new_rg_entry_candidates = rg_entry_candidates
+
+    return new_rg_entry_candidates
+
+
+def reduce_regime_candidates_new_leg(
+        rg_entry_candidates: pd.DataFrame,
+        price_data: pd.DataFrame,
+        entry_price: t.Union[float, None],
+        entry_signal: t.Union[pd.Series, None],
+        rg_info: pd.Series,
+        rg_peak_table: pd.DataFrame,
 
 ):
     """
@@ -914,7 +949,7 @@ def calc_stats(
     window: int,
     percentile: float,
     limit,
-    round_to=2
+    round_to=2,
 ) -> t.Union[None, pd.DataFrame]:
     """
     get full stats of strategy, rolling and expanding

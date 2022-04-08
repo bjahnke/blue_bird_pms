@@ -403,7 +403,7 @@ class ScanData:
     peak_table: pd.DataFrame
 
 
-def run_scanner(scanner, stat_calculator) -> ScanData:
+def run_scanner(scanner, stat_calculator, restrict_side=False) -> ScanData:
     stat_overview = pd.DataFrame()
     entry_data = {}
     strategy_data_lookup = {}
@@ -414,6 +414,12 @@ def run_scanner(scanner, stat_calculator) -> ScanData:
             continue
 
         signals = strategy_data.valid_entries.copy()
+
+        if restrict_side is not False:
+            signals = signals.loc[signals.dir == restrict_side].reset_index(drop=True)
+
+        if signals.empty:
+            continue
 
         stat_sheet_historical = stat_calculator(symbol_data, signals)
         if stat_sheet_historical is None:
