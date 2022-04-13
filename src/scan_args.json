@@ -28,7 +28,7 @@
     "limit": 5
   },
   "scanner_settings": {
-    "multiprocess": true,
+    "multiprocess": false,
     "test_symbols": ["FITB"],
     "restrict_side": -1
   }

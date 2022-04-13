@@ -401,6 +401,52 @@ def retrace_swing(
     return df, discovery_lag
 
 
+def new_retrace_swing(close_price, swing_params, prev_swing_data, retrace_vlty, dist_vlty, dist_pct, retrace_pct):
+    """
+    continues calculation of retracement
+    dfs should be restarted to most recent swing
+    """
+    distance = swing_params.adj_sub(prev_swing_data.st_px)
+    dist_vlty_test = (distance - dist_vlty) > 0
+    pct_test = ((distance - 1) - dist_pct) > 0
+    retrace = swing_params.adj_sub(close_price)
+
+    # TODO atr levels should be base vlty
+    vlty_breach = (retrace / swing_params.base_atr_levels) - retrace_vlty
+    vlty_breach = vlty_breach.loc[dist_vlty_test & (vlty_breach > 0)]
+    vlty_breach_date = vlty_breach.first_valid_index()
+
+    pct_breach = (retrace / swing_params.extreme) - retrace_pct
+    pct_breach = pct_breach.loc[pct_test & (pct_breach > 0)]
+    pct_breach_date = pct_breach.first_valid_index()
+    discovery_date = min(normalize_none_values([vlty_breach_date, pct_breach_date]))
+    return discovery_date
+
+
+def new_retest_swing(close_price, swing_params):
+    """retest table required"""
+    if not swing_params.rt.empty:
+        cum_hurdle = getattr(swing_params.rt, 'cummax' if swing_params.type == -1 else 'cummin')()
+        breach_query = swing_params.adj(close_price - cum_hurdle)
+        discovery_date = swing_params
+
+
+def normalize_none_values(values):
+    """
+    when comparing a set of indexes received from first_valid_date(),
+    normalize any None values to a valid value to avoid error
+    """
+    not_none_val = None
+    for val in values:
+        if val is not None:
+            not_none_val = val
+            break
+    res = None
+    if not_none_val is not None:
+        res = [val if val is not None else not_none_val for val in values]
+    return res
+
+
 def test_distance(base_sw_val, hh_ll, dist_vol, dist_pct):
     """
     when swing low is latest, does the highest high afterward exceed the distance test?
