@@ -453,7 +453,7 @@ def draw_stop_line(
     trail_price = stop_calc.get_stop_price(price, trail_stop_date, offset_pct)
     stop_line = stop_calc.init_trail_stop(price, trail_price, entry_date, rg_end_date)
     fixed_stop_price = stop_calc.get_stop_price(price, fixed_stop_date, offset_pct)
-    stop_line = stop_calc.cap_trail_stop(stop_line, entry_price, fixed_stop_price)
+    # stop_line = stop_calc.cap_trail_stop(stop_line, entry_price, fixed_stop_price)
     target_price = get_target_price(fixed_stop_price, entry_price, r_multiplier)
     target_exit_signal = stop_calc.target_exit_signal(price, target_price)
     partial_exit_date = stop_line.loc[target_exit_signal].first_valid_index()

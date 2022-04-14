@@ -28,8 +28,8 @@
     "limit": 5
   },
   "scanner_settings": {
-    "multiprocess": false,
-    "test_symbols": ["FITB"],
+    "multiprocess": true,
+    "test_symbols": ["MSFT"],
     "restrict_side": -1
   }
 }

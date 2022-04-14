@@ -169,10 +169,14 @@ class AbcSwingParams:
         # peak_date = px.loc[date_query & price_query].iloc[-1].name
         return peak_date
 
-    def get_next_peak_data(self, close_price):
-        distance_threshold = abs(close_price - self.extreme_levels) - self.dist_atr_levels
+    def get_next_peak_data(self, close_price, prev_swing_price):
+        retrace = self.adj_sub(close_price)
+        distance_threshold = retrace - self.dist_atr_levels
+        pct_breach = (retrace / self.extreme_levels) - self.retrace_pct
+        # retrace = self.adj(close_price)
         peak_discovery_date = close_price.loc[
-            (distance_threshold > 0)
+            (distance_threshold > 0) |
+            (pct_breach > 0)
         ].first_valid_index()
         peak_date = self.get_peak_date(peak_discovery_date)
         return {'peak_date': peak_date, 'peak_discovery_date': peak_discovery_date}
@@ -235,38 +239,44 @@ class BaseSwingParams(AbcSwingParams):
         self.peaks = res['peaks']
 
 
-class DerivedSwingParams(AbcSwingParams):
-    def __init__(self, index, atr, raw_peaks, sw_type):
-        self._cum_f = self.__class__.get_cum_f(sw_type)
-        param_attrs = self.__class__._init_params(index, atr, raw_peaks, self._cum_f)
-        param_attrs['sw_type'] = sw_type
-        super().__init__(**param_attrs)
-        self._base_atr = atr
-        self._base_index = index
+class DerivedSwingParams(BaseSwingParams):
+    def __init__(self, retest_peaks, **kwargs):
+        # self._cum_f = self.__class__.get_cum_f(sw_type)
+        # param_attrs = self.__class__._init_params(index, atr, raw_peaks, self._cum_f)
+        # param_attrs['sw_type'] = sw_type
+        # super().__init__(**param_attrs)
+        # self._base_atr = atr
+        # self._base_index = index
+        super().__init__(**kwargs)
+        self.retest = retest_peaks
 
-    @staticmethod
-    def _init_params(index, atr, raw_peaks, cum_f):
-        """
-        :param index: index of price series
-        :param atr: average true range series
-        :param raw_peaks: peaks discovered on the lower level
-        :return:
-        """
-        extreme_levels = pd.DataFrame(index=index, columns=['ext'])
-        extreme_levels['ext'] = raw_peaks
-        extreme_levels = extreme_levels['ext']
-        extreme_levels = getattr(extreme_levels, cum_f)().ffill()
-        atr_levels = atr.copy()
-        atr_levels.loc[~atr_levels.index.isin(raw_peaks.index)] = np.nan
-        atr_levels = atr_levels.ffill()
-        return {'extreme_levels': extreme_levels, 'atr_levels': atr_levels, 'peaks': raw_peaks}
+    # @staticmethod
+    # def _init_params(index, atr, raw_peaks, cum_f):
+    #     """
+    #     :param index: index of price series
+    #     :param atr: average true range series
+    #     :param raw_peaks: peaks discovered on the lower level
+    #     :return:
+    #     """
+    #     extreme_levels = pd.DataFrame(index=index, columns=['ext'])
+    #     extreme_levels['ext'] = raw_peaks
+    #     extreme_levels = extreme_levels['ext']
+    #     extreme_levels = getattr(extreme_levels, cum_f)().ffill()
+    #     atr_levels = atr.copy()
+    #     atr_levels.loc[~atr_levels.index.isin(raw_peaks.index)] = np.nan
+    #     atr_levels = atr_levels.ffill()
+    #     return {'extreme_levels': extreme_levels, 'atr_levels': atr_levels, 'peaks': raw_peaks}
+
+    # def update_params(self, date_index):
+    #     self._base_index = self._base_index[self._base_index.get_loc(date_index) + 1:]
+    #     self.peaks = self.peaks.loc[self.peaks.index > date_index]
+    #     res = self.__class__._init_params(self._base_index, self._base_atr, self.peaks, self._cum_f)
+    #     self.extreme_levels = res['extreme_levels']
+    #     self.base_atr_levels = self.base_atr_levels[self.base_atr_levels.index > date_index]
 
     def update_params(self, date_index):
-        self._base_index = self._base_index[self._base_index.get_loc(date_index) + 1:]
-        self.peaks = self.peaks.loc[self.peaks.index > date_index]
-        res = self.__class__._init_params(self._base_index, self._base_atr, self.peaks, self._cum_f)
-        self.extreme_levels = res['extreme_levels']
-        self.base_atr_levels = self.base_atr_levels[self.base_atr_levels.index > date_index]
+        super().update_params(date_index)
+        self.retest = self.retest.loc[self.retest.index > date_index]
 
     @staticmethod
     def swing_to_raw_peaks(swing_table) -> t.Tuple[pd.Series, pd.Series]:
@@ -275,6 +285,20 @@ class DerivedSwingParams(AbcSwingParams):
         sw_hi_peaks = raw_peaks.loc[raw_peaks.type == -1]
         sw_lo_peaks = raw_peaks.loc[raw_peaks.type == 1]
         return sw_hi_peaks.st_px, sw_lo_peaks.st_px
+
+    # def get_next_peak_data(self, close_price, prev_swing_price):
+    #     """retest table required"""
+    #     distance = self.adj_sub(prev_swing_price)
+    #     dist_vlty_test = (distance - self.dist_atr_levels) > 0
+    #     res = {'peak_date': None, 'peak_discovery_date': None}
+    #     if not self.retest.empty:
+    #         # cum_hurdle = getattr(self.retest, 'cummax' if self.sw_type == -1 else 'cummin')()
+    #         cum_hurdle = self.retest.ffill()
+    #         breach_query = self.adj(close_price - cum_hurdle)
+    #         peak_discovery_date = close_price.loc[dist_vlty_test & (breach_query > 0)].first_valid_index()
+    #         peak_date = self.get_peak_date(peak_discovery_date)
+    #         res = {'peak_date': peak_date, 'peak_discovery_date': peak_discovery_date}
+    #     return res
 
 
 def init_swings(
@@ -324,6 +348,7 @@ def init_swings(
         1: n_num//4
     }
     i = 1
+    initial_price = _px.close.iloc[0]
     while True:
         vlty_window = vlty_windows[i]
         atr = average_true_range(df, vlty_window)
@@ -331,20 +356,24 @@ def init_swings(
         _px = _px.loc[_atr_valid_dt:]
         _atr = atr.loc[_atr_valid_dt:]
 
-        sw_hi_params = BaseSwingParams(
-            _atr, _px.close, -1,
-            dist_pct=dist_pcts[i], retrace_pct=retrace_pcts[i],
-            dist_vlty_mult=vlty_mult[i],
-            retrace_vlty_mult=retrace_mult[i]
-        )
-        sw_lo_params = BaseSwingParams(
-            _atr, _px.close, 1,
-            dist_pct=dist_pcts[i], retrace_pct=retrace_pcts[i],
-            dist_vlty_mult=vlty_mult[i],
-            retrace_vlty_mult=retrace_mult[i]
-        )
+        swings_init = {
+            'atr': _atr,
+            'price': _px.close,
+            # 'sw_type',
+            'dist_vlty_mult': vlty_mult[i],
+            'retrace_vlty_mult': retrace_mult[i],
+            'dist_pct': dist_pcts[i],
+            'retrace_pct': retrace_pcts[i]
+        }
 
-        swings = volatility_swings(_px, sw_hi_params, sw_lo_params)
+        if i != 3:
+            sw_hi_params = BaseSwingParams(sw_type=-1, **swings_init)
+            sw_lo_params = BaseSwingParams(sw_type=1, **swings_init)
+        else:
+            sw_hi_params = DerivedSwingParams(retest_peaks=df['lo1'], sw_type=-1, **swings_init)
+            sw_lo_params = DerivedSwingParams(retest_peaks=df['hi1'], sw_type=1, **swings_init)
+
+        swings = volatility_swings(_px, sw_hi_params, sw_lo_params, initial_price)
         swings['lvl'] = i
         swings['st_px'] = pda.PeakTable(swings).start_price(df)
         swings['en_px'] = pda.PeakTable(swings).end_price(df)
@@ -365,7 +394,7 @@ def init_swings(
     return df, peak_table
 
 
-def volatility_swings(px: pd.DataFrame, hi_sw_params: AbcSwingParams, lo_sw_params):
+def volatility_swings(px: pd.DataFrame, hi_sw_params: AbcSwingParams, lo_sw_params, initial_price):
     """
     alternate looking for swing hi/lo starting with whichever swing is found sooner
     :param px:
@@ -378,7 +407,7 @@ def volatility_swings(px: pd.DataFrame, hi_sw_params: AbcSwingParams, lo_sw_para
     _px = px.copy()
     # _atr = atr.copy()
     swing_data = []
-    latest_swing_data, swing_params = initial_volatility_swing(_px, hi_sw_params, lo_sw_params)
+    latest_swing_data, swing_params = initial_volatility_swing(_px, hi_sw_params, lo_sw_params, initial_price)
     while None not in latest_swing_data.values():
         latest_swing_data['type'] = swing_params.sw_type
         swing_data.append(latest_swing_data.values())
@@ -394,7 +423,7 @@ def volatility_swings(px: pd.DataFrame, hi_sw_params: AbcSwingParams, lo_sw_para
         # swap swing type from previous and search
 
         # latest_swing_data = get_next_peak_data(_px.close, swing_params)
-        latest_swing_data = swing_params.get_next_retrace_swing(_px.close, last_sw_price)
+        latest_swing_data = swing_params.get_next_peak_data(_px.close, last_sw_price)
 
         if None in latest_swing_data.values():
             break
@@ -404,13 +433,12 @@ def volatility_swings(px: pd.DataFrame, hi_sw_params: AbcSwingParams, lo_sw_para
     return pd.DataFrame(data=swing_data, columns=['start', 'end', 'type'])
 
 
-def initial_volatility_swing(_px, hi_sw_params, lo_sw_params):
+def initial_volatility_swing(_px, hi_sw_params, lo_sw_params, initial_price):
     """get data for the first swing in the series"""
     # high_peak_data = get_next_peak_data(_px.close, hi_sw_params)
     # low_peak_data = get_next_peak_data(_px.close, lo_sw_params)
-    init_price = _px.close.iloc[0]
-    high_peak_data = hi_sw_params.get_next_retrace_swing(_px.close, init_price)
-    low_peak_data = lo_sw_params.get_next_retrace_swing(_px.close, init_price)
+    high_peak_data = hi_sw_params.get_next_peak_data(_px.close, initial_price)
+    low_peak_data = lo_sw_params.get_next_peak_data(_px.close, initial_price)
     swing_data_selector = {
         high_peak_data['peak_discovery_date']: (high_peak_data, hi_sw_params),
         low_peak_data['peak_discovery_date']: (low_peak_data, lo_sw_params),
@@ -584,13 +612,13 @@ def regime_floor_ceiling(
     calc_breakdown = hof_break_pullback(
         df=df,
         extreme_idx_f='idxmin',
-        extreme_val_f='cummax',
+        extreme_val_f='cummin',
         retest='hi1'
     )
     calc_breakout = hof_break_pullback(
         df=df,
         extreme_idx_f='idxmax',
-        extreme_val_f='cummin',
+        extreme_val_f='cummax',
         retest='lo1'
     )
 
@@ -619,7 +647,7 @@ def regime_floor_ceiling(
     _hi_idxs = [i if i < _sw_hi_len else -1 for i in range(loop_size)]
     _lo_idxs = [i if i < _sw_lo_len else -1 for i in range(loop_size)]
 
-    swing_discovery_date = None
+    latest_swing_data = None
 
     # Loop through swings
     for i in range(loop_size):
@@ -727,13 +755,13 @@ def regime_floor_ceiling(
     df[rg_ch] = df[rg_ch].fillna(method="ffill")
 
     # regime from last swing
-    if swing_discovery_date is not None:
-        df.loc[swing_discovery_date:, rg] = np.where(
+    if latest_swing_data is not None:
+        df.loc[latest_swing_data.end:, rg] = np.where(
             ceiling_found,  # if ceiling found, highest high since rg_ch_ix
-            np.sign(df.loc[swing_discovery_date:, _c].cummax() - fc_data.rg_ch_val.iloc[-1]),
+            np.sign(df.loc[latest_swing_data.end:, _c].cummax() - fc_data.rg_ch_val.iloc[-1]),
             np.where(
                 floor_found,  # if floor found, lowest low since rg_ch_ix
-                np.sign(df.loc[swing_discovery_date:, _c].cummin() - fc_data.rg_ch_val.iloc[-1]),
+                np.sign(df.loc[latest_swing_data.end:, _c].cummin() - fc_data.rg_ch_val.iloc[-1]),
                 # np.sign(df[swing_discovery_date:][_c].rolling(5).mean() - rg_ch_list[-1]),
                 np.nan
             ),
@@ -895,15 +923,25 @@ def break_pullback(
 ):
     # TODO, if retest pass, rg should be set starting with swing discovery date
     # TODO
-    data_range = df.loc[rg_ch_data.rg_ch_date: latest_hi_lo_sw_discovery, close_col]
-    break_extreme_date = getattr(data_range, extreme_idx_func)()
+
+    # data_range = df.loc[rg_ch_data.rg_ch_date: latest_hi_lo_sw_discovery, close_col]
+    data_range = df.loc[rg_ch_data.rg_ch_date: latest_hi_lo_sw_discovery].copy()
+    # break_extreme_date = getattr(data_range, extreme_idx_func)()
 
     # brkout_low = df[brkout_high_ix: latest_hi_lo_swing][close_col].cummin()
     # break_vals = df.loc[break_extreme_date: latest_hi_lo_sw_discovery, close_col]
-    break_vals = df.loc[break_extreme_date: latest_hi_lo_sw_discovery, close_col].ffill()
-    break_val = getattr(break_vals, extreme_val_func)()
+    # break_vals = df.loc[break_extreme_date: latest_hi_lo_sw_discovery, close_col].ffill()
 
-    df.loc[break_extreme_date: latest_hi_lo_sw_discovery, rg_col] = np.sign(
-        break_val - rg_ch_data.rg_ch_val
+    diff = data_range.close - rg_ch_data.rg_ch_val
+    data_range['retests'] = np.where(
+        diff > 0,
+        data_range.lo1,
+        data_range.hi1
+    )
+    data_range['retests'] = data_range['retests'].ffill()
+    # break_val = getattr(break_vals, extreme_val_func)()
+
+    df.loc[rg_ch_data.rg_ch_date: latest_hi_lo_sw_discovery, rg_col] = np.sign(
+        data_range['retests'] - rg_ch_data.rg_ch_val
     )
     return df

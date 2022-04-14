@@ -421,11 +421,14 @@ def run_scanner(scanner, stat_calculator, restrict_side=False) -> ScanData:
         if signals.empty:
             continue
 
-        stat_sheet_historical = stat_calculator(symbol_data, signals)
+        # stat_sheet_historical = stat_calculator(symbol_data, signals)
+        stat_sheet_historical = stat_calculator(strategy_data.enhanced_price_data, signals)
+
         if stat_sheet_historical is None:
             continue
 
         strategy_data.stat_historical = stat_sheet_historical
+
         strategy_data_lookup[symbol] = strategy_data
         signals['symbol'] = symbol
 
@@ -459,7 +462,7 @@ def run_scanner(scanner, stat_calculator, restrict_side=False) -> ScanData:
 
         r_multiplier = 1.5
 
-        signals['shares'] = signal_table.eqty_risk_shares(strategy_data.enhanced_price_data, 60000, signals['risk'])
+        signals['shares'] = signal_table.eqty_risk_shares(strategy_data.enhanced_price_data, 30000, signals['risk'])
 
         partial_exit_ptc = (signals.shares / r_multiplier) / signals.shares
         remaining_exit_ptc = 1 - partial_exit_ptc

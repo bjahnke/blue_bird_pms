@@ -347,6 +347,19 @@ def retrace_swing(
         retrace_pct,
         _c='close'
 ):
+    """
+
+    :param df:
+    :param ud:
+    :param _swg:
+    :param hh_ll_dt:
+    :param hh_ll:
+    :param vlty: volatility at hh_ll_dt
+    :param retrace_vol: volatility multiplied by some value
+    :param retrace_pct:
+    :param _c:
+    :return:
+    """
     if ud == 1:
         extreme_f = 'min'
         extreme_idx_f = 'idxmin'
@@ -423,8 +436,10 @@ def new_retrace_swing(close_price, swing_params, prev_swing_data, retrace_vlty, 
     return discovery_date
 
 
-def new_retest_swing(close_price, swing_params):
+def new_retest_swing(close_price, swing_params, prev_swing_price, dist_vlty):
     """retest table required"""
+    distance = swing_params.adj_sub(prev_swing_price)
+    dist_vlty_test = (distance - dist_vlty) > 0
     if not swing_params.rt.empty:
         cum_hurdle = getattr(swing_params.rt, 'cummax' if swing_params.type == -1 else 'cummin')()
         breach_query = swing_params.adj(close_price - cum_hurdle)
