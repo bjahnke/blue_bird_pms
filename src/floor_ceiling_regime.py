@@ -14,92 +14,6 @@ import src.money_management as mm
 import old_regime_functions as orf
 
 
-def all_retest_swing(df, rt: str, dist_pct, retrace_pct, n_num):
-    """
-    for back testing entries from swings
-    get all retest values by working backward, storing the current retest value then
-    slicing out data from current retest onward
-    :return:
-    """
-    all_retests = pd.Series(data=np.NAN, index=df.index)
-    working_df = df.copy()
-    retest_count = 0
-    ix = 2220
-    ax = None
-    lvl4 = None
-    while True:
-        ix += 1
-        # working_df = working_df[['open', 'close', 'high', 'low']].copy()
-
-        try:
-            working_df = df[["open", "close", "high", "low"]].iloc[:ix].copy()
-            working_df = src.utils.regime.init_swings(
-                working_df, dist_pct, retrace_pct, n_num,
-            )
-            retest_val_lookup = ~pd.isna(working_df[rt])
-            retest_value_row = working_df[rt].loc[retest_val_lookup]
-            retest_value_index = retest_value_row.index[0]
-            all_retests.at[retest_value_index] = retest_value_row
-        except KeyError:
-            # working_df = working_df.iloc[:-1]
-            pass
-
-        else:
-            if ax is None:
-                try:
-                    ax = working_df[["close", "hi4", "lo4", "hi2", "lo2"]].plot(
-                        style=["grey", "rv", "g^", "r.", "g.", "ko"],
-                        figsize=(15, 5),
-                        grid=True,
-                        ax=ax,
-                    )
-                    ax = all_retests.plot(style=["k."], ax=ax)
-                    plt.ion()
-                    plt.show()
-                    plt.pause(0.001)
-                except:
-                    print("lvl4 not in index")
-                    pass
-        if ax is not None:
-
-            try:
-                ax.clear()
-                lvl4 = True
-                working_df[["close", "hi4", "lo4", "hi2", "lo2"]].plot(
-                    style=["grey", "rv", "g^", "r.", "g."],
-                    figsize=(15, 5),
-                    grid=True,
-                    ax=ax,
-                )
-                all_retests.plot(style=["k."], ax=ax)
-                plt.pause(0.001)
-            except:
-                if lvl4 is True:
-                    print("switch")
-                    lvl4 = False
-                ax.clear()
-                working_df[["close", "hi3", "lo3", "hi2", "lo2"]].plot(
-                    style=["grey", "rv", "g^", "r.", "g."],
-                    figsize=(15, 5),
-                    grid=True,
-                    ax=ax,
-                )
-                all_retests.plot(style=["k."], ax=ax)
-                plt.pause(0.001)
-
-            # plt.show()
-            # plt.clear()
-            # working_df = working_df.loc[:retest_value_index]
-
-        # print(len(working_df.index.to_list()))
-        count = all_retests.count()
-        if count > retest_count:
-            retest_count = count
-            print(f"retest count: {retest_count}")
-
-    # return all_retests
-
-
 def relative(
     df, _o, _h, _l, _c, bm_df, bm_col, ccy_df, ccy_col, dgt, start, end, rebase=True
 ):
@@ -447,13 +361,18 @@ def draw_stop_line(
     :param offset_pct:
     :return:
     """
-    # _stop_modifier = atr * 2
+    _stop_modifier = atr * 2
+
 
     entry_price = price.close.loc[entry_date]
-    trail_price = stop_calc.get_stop_price(price, trail_stop_date, offset_pct)
-    stop_line = stop_calc.init_trail_stop(price, trail_price, entry_date, rg_end_date)
+    # trail_price = stop_calc.get_stop_price(price, trail_stop_date, offset_pct)
+    # stop_line = stop_calc.init_trail_stop(price, trail_price, entry_date, rg_end_date)
+    stop_line = stop_calc.init_atr_stop(
+        price, price.close.loc[trail_stop_date],
+        entry_date, rg_end_date, _stop_modifier
+    )
     fixed_stop_price = stop_calc.get_stop_price(price, fixed_stop_date, offset_pct)
-    # stop_line = stop_calc.cap_trail_stop(stop_line, entry_price, fixed_stop_price)
+    stop_line = stop_calc.cap_trail_stop(stop_line, entry_price)
     target_price = get_target_price(fixed_stop_price, entry_price, r_multiplier)
     target_exit_signal = stop_calc.target_exit_signal(price, target_price)
     partial_exit_date = stop_line.loc[target_exit_signal].first_valid_index()
@@ -563,7 +482,16 @@ def process_signal_data(
             if rg_entry_candidates.empty:
                 break
 
-            rg_entry_candidates = reduce_regime_candidates(
+            # rg_entry_candidates = reduce_regime_candidates(
+            #     rg_entry_candidates,
+            #     r_price_data,
+            #     entry_price,
+            #     entry_signal,
+            #     rg_info,
+            #     rg_peak_table
+            # )
+
+            rg_entry_candidates = reduce_regime_candidates_new_leg(
                 rg_entry_candidates,
                 r_price_data,
                 entry_price,

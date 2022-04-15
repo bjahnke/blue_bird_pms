@@ -248,7 +248,12 @@ class SignalTable(PivotTable):
         return price_table.close.loc[self.exit_signal_date].reset_index(drop=True)
 
     def partial_exit_prices(self, price_table: PriceTable):
-        return price_table.close.loc[self.partial_exit_date.dropna()].reset_index(drop=True)
+        # return price_table.close.loc[self.partial_exit_date.dropna()]
+        data_cpy = self.data.copy()
+        notna = self.data.loc[self.partial_exit_date.notna()].copy()
+        notna['partial_exit_prices'] = price_table.close.loc[notna.partial_exit_date].values
+        data_cpy['partial_exit_prices'] = notna['partial_exit_prices']
+        return data_cpy['partial_exit_prices']
 
     def static_returns(self, price_table: PriceTable):
         return (self.exit_prices(price_table) - self.entry_prices(price_table)) * self.dir

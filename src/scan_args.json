@@ -29,7 +29,7 @@
   },
   "scanner_settings": {
     "multiprocess": true,
-    "test_symbols": ["MSFT"],
-    "restrict_side": -1
+    "test_symbols": ["FDS"],
+    "restrict_side": false
   }
 }

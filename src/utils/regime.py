@@ -680,6 +680,8 @@ def regime_floor_ceiling(
                 latest_hi_lo_sw_discovery=latest_swing_data.end
             )
             if res is True:
+                # 3rd fc_data is the first discovered regime,
+                # since rg_ch_val is not necessarily valid since we do not have prior data
                 breakout = True
                 floor_found = ceiling_found = breakdown = False
 
@@ -712,6 +714,8 @@ def regime_floor_ceiling(
                 latest_hi_lo_sw_discovery=latest_swing_data.end
             )
             if res is True:
+                # 3rd fc_data is the first discovered regime,
+                # since rg_ch_val is not necessarily valid since we do not have prior data
                 breakdown = True
                 ceiling_found = floor_found = breakout = False
 

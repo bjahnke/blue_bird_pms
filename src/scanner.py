@@ -442,7 +442,7 @@ def run_scanner(scanner, stat_calculator, restrict_side=False) -> ScanData:
 
         signals['abs_entry'] = signal_table.entry_prices(price_table)
         signals['abs_exit'] = signal_table.exit_prices(price_table)
-        signals['abs_return'] = signal_table.static_returns(price_table)
+        # signals['abs_return'] = signal_table.static_returns(price_table)
         signals['partial_exit'] = signal_table.partial_exit_prices(price_table)
 
         risk = signal_table.pyramid_all(-0.0075)
@@ -464,10 +464,13 @@ def run_scanner(scanner, stat_calculator, restrict_side=False) -> ScanData:
 
         signals['shares'] = signal_table.eqty_risk_shares(strategy_data.enhanced_price_data, 30000, signals['risk'])
 
-        partial_exit_ptc = (signals.shares / r_multiplier) / signals.shares
+        partial_exit_ptc = ((signals.shares / r_multiplier) / signals.shares)
         remaining_exit_ptc = 1 - partial_exit_ptc
-        signals['partial_profit'] = (signals.partial_exit - signals.abs_entry) * partial_exit_ptc
-        signals['rem_profit'] = (signals.abs_exit - signals.abs_entry) * remaining_exit_ptc
+        partial_exit_shares = (signals.shares * partial_exit_ptc).apply(np.ceil)
+        remaining_exit_shares = signals.shares - partial_exit_shares
+
+        signals['partial_profit'] = (signals.partial_exit - signals.abs_entry) * partial_exit_shares
+        signals['rem_profit'] = (signals.abs_exit - signals.abs_entry) * remaining_exit_shares
         signals['partial_total'] = signals.partial_profit + signals.rem_profit
         signals['no_partial_total'] = (signals.abs_exit - signals.abs_entry) * signals.shares
         signals['my_total'] = signals['partial_total']

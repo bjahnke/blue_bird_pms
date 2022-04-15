@@ -26,6 +26,9 @@ class TrailStop:
         :param initial_trail_price:
         :return:
         """
+        # trail = price.close.loc[entry_date: rg_end_date] - (initial_trail_price * self.dir)
+        # trail = (trail * self.dir).cummax() * self.dir
+
         entry_price = price.close.loc[entry_date]
         trail_pct_from_entry = (entry_price - initial_trail_price) / entry_price
         extremes = price.loc[entry_date:rg_end_date, self.pos_price_col]
@@ -40,6 +43,13 @@ class TrailStop:
         trail_stop.iat[0] = trail_stop.iat[1]
 
         return trail_stop
+
+    def init_atr_stop(self, price, initial_trail_price, entry_date, rg_end_date, modified_atr):
+        init_trail_diff = abs(initial_trail_price - price.close.loc[entry_date])
+        trail = price.close.loc[entry_date: rg_end_date] - (init_trail_diff * self.dir)
+        trail = (trail * self.dir).cummax() * self.dir
+        trail = trail - (self.dir * modified_atr.loc[entry_date: rg_end_date])
+        return trail
 
     def init_stop_loss(self, price, stop_price, entry_date, rg_end_date):
         stop_line = pd.Series(index=price.index)
