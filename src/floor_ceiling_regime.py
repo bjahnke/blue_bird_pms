@@ -177,6 +177,8 @@ def get_all_entry_candidates(
     peaks: pd.DataFrame,
     entry_lvls: t.List[int],
     highest_peak_lvl: int,
+    stop_loss_offset_pct: float,
+    r_multiplier: float
 ):
     """
     set fixed stop for first signal in each regime to the recent lvl 3 peak
@@ -217,6 +219,17 @@ def get_all_entry_candidates(
         raise NoEntriesError
 
     signal_candidates = signal_candidates[['entry', 'en_px', 'dir', 'trail_stop', 'fixed_stop']]
+
+    pct_from_peak = 1 - (stop_loss_offset_pct * signal_candidates.dir)
+    signal_candidates['fixed_stop_price'] = price.loc[signal_candidates.fixed_stop.values, 'close'].values * pct_from_peak
+    signal_candidates['r_pct'] = (
+            (signal_candidates.en_px - signal_candidates.fixed_stop_price) / signal_candidates.en_px
+    )
+    signal_candidates = signal_candidates.loc[abs(signal_candidates.r_pct) < 0.15]
+    signal_candidates['target_price'] = (
+            signal_candidates.en_px + (signal_candidates.en_px * signal_candidates.r_pct * r_multiplier)
+    )
+
     return signal_candidates
 
 
@@ -241,15 +254,17 @@ def get_regime_signal_candidates(
         return rg_entries
 
     prior_major_peaks = entry_table.loc[
-        (entry_table.trail_stop < first_sig.trail_stop)
+        (entry_table.entry <= first_sig.entry)
         & (entry_table.lvl == highest_peak_lvl)
         & (entry_table.type == first_sig.type)
+        & (((first_sig.en_px - entry_table.st_px) * first_sig.type) > 0)
     ]
     try:
         rg_entries.fixed_stop.iat[0] = prior_major_peaks.trail_stop.iat[-1]
     except IndexError:
         # skip if no prior level 3 peaks
         pass
+
     return rg_entries
 
 
@@ -342,15 +357,19 @@ def draw_stop_line(
     stop_calc: mm.TrailStop,
     price: pd.DataFrame,
     trail_stop_date,
-    fixed_stop_date,
+    fixed_stop_price,
     entry_date,
-    offset_pct,
-    r_multiplier,
+    entry_price,
+    target_price,
     rg_end_date,
     atr,
 ) -> t.Tuple[pd.Series, pd.Timestamp, pd.Timestamp, pd.Series, float]:
     """
     trail stop to entry price, then reset to fixed stop price after target price is reached
+    :param target_price:
+    :param entry_price:
+    :param atr:
+    :param fixed_stop_price:
     :param rg_end_date:
     :param stop_calc:
     :param entry_date:
@@ -362,18 +381,15 @@ def draw_stop_line(
     :return:
     """
     _stop_modifier = atr * 2
-
-
-    entry_price = price.close.loc[entry_date]
     # trail_price = stop_calc.get_stop_price(price, trail_stop_date, offset_pct)
     # stop_line = stop_calc.init_trail_stop(price, trail_price, entry_date, rg_end_date)
-    stop_line = stop_calc.init_atr_stop(
+    stop_line = stop_calc.init_trail_stop(
         price, price.close.loc[trail_stop_date],
-        entry_date, rg_end_date, _stop_modifier
+        entry_date, rg_end_date
     )
-    fixed_stop_price = stop_calc.get_stop_price(price, fixed_stop_date, offset_pct)
     stop_line = stop_calc.cap_trail_stop(stop_line, entry_price)
-    target_price = get_target_price(fixed_stop_price, entry_price, r_multiplier)
+    stop_line = stop_calc.init_atr_stop(stop_line, entry_date, rg_end_date, _stop_modifier)
+
     target_exit_signal = stop_calc.target_exit_signal(price, target_price)
     partial_exit_date = stop_line.loc[target_exit_signal].first_valid_index()
 
@@ -456,8 +472,12 @@ def process_signal_data(
         ),
     }
     valid_entries = pd.DataFrame(columns=entry_candidates.columns.to_list())
+    valid_entries['partial_exit_date'] = np.nan
+    valid_entries['rg_id'] = np.nan
     stop_lines = []
-    french_stop = pda.FrenchStop.init_empty_df(index=r_price_data.index)
+
+    french_stop_table = pd.DataFrame(columns=['start', 'end'])
+    french_stop_lines = []
 
     for rg_idx, rg_info in regimes.iterrows():
         stop_calc = trail_map[rg_info.rg]
@@ -516,10 +536,10 @@ def process_signal_data(
                 stop_calc=stop_calc,
                 price=r_price_data,
                 trail_stop_date=entry_signal.trail_stop,
-                fixed_stop_date=entry_signal.fixed_stop,
+                fixed_stop_price=entry_signal.fixed_stop_price,
                 entry_date=entry_signal.entry,
-                offset_pct=offset_pct,
-                r_multiplier=r_multiplier,
+                entry_price=entry_signal.en_px,
+                target_price=entry_signal.target_price,
                 rg_end_date=end,
                 atr=atr
             )
@@ -557,28 +577,25 @@ def process_signal_data(
 
             valid_entries = pd.concat([valid_entries, entry_signal_data.to_frame().transpose()], ignore_index=True)
 
-            french_stop = pda.FrenchStop(french_stop).update(
-                r_price_data,
-                valid_entries.loc[
-                    (valid_entries.dir == rg_info.rg) &
-                    (valid_entries.entry >= rg_info.start)
-                ],
-                rg_end=end
-            )
-            french_exit_signal = stop_calc.exit_signal(rg_price_data, french_stop.stop_price)
-            french_exit_date = french_stop.loc[french_exit_signal].first_valid_index()
-
-            # set exits for still open reduced-risk positions
-
-            if french_exit_date is not None:
-                update_stop_query = (
-                    (pd.notna(valid_entries.partial_exit_date)) &
-                    (french_exit_date < valid_entries.exit_signal_date)
-                )
-                update_stop_query.iloc[-1] = False
-                # valid_entries.iloc[:-2].loc[update_stop_query, 'exit_signal_date'] = french_exit_date
-                # valid_entries.iloc[:-2, valid_entries.columns.get_loc('exit_signal_date')] = french_exit_date
-                valid_entries.loc[update_stop_query, 'exit_signal_date'] = french_exit_date
+            # french_stop_line = pda.FrenchStop(french_stop_line).update(
+            #     r_price_data,
+            #     valid_entries.loc[valid_entries.rg_id == rg_info.name],
+            #     rg_end=end
+            # )
+            # french_exit_signal = stop_calc.exit_signal(rg_price_data, french_stop_line.stop_price)
+            # french_exit_date = french_stop_line.loc[french_exit_signal].first_valid_index()
+            #
+            # # set exits for still open reduced-risk positions
+            #
+            # if french_exit_date is not None:
+            #     update_stop_query = (
+            #         (pd.notna(valid_entries.partial_exit_date)) &
+            #         (french_exit_date < valid_entries.exit_signal_date)
+            #     )
+            #     update_stop_query.iloc[-1] = False
+            #     # valid_entries.iloc[:-2].loc[update_stop_query, 'exit_signal_date'] = french_exit_date
+            #     # valid_entries.iloc[:-2, valid_entries.columns.get_loc('exit_signal_date')] = french_exit_date
+            #     valid_entries.loc[update_stop_query, 'exit_signal_date'] = french_exit_date
 
             start = exit_signal_date
             if not pd.isna(partial_exit_date):
@@ -589,6 +606,57 @@ def process_signal_data(
                     # if exit greater than partial exit, then potentially another signal can be added
                     start = partial_exit_date
 
+        partial_exit_entries = valid_entries.loc[
+            valid_entries.partial_exit_date.notna() &
+            (valid_entries.rg_id == rg_info.name)
+        ]
+
+        french_start_date = None
+        fs_id = 0
+        french_stop_line = None
+        french_exit_date = None
+        for i, (idx, current_entry) in enumerate(partial_exit_entries.iterrows()):
+            if i == 0:
+                continue
+            prior_entry_price = partial_exit_entries.iloc[i-1].en_px
+            if french_start_date is None:
+                french_start_date = current_entry.partial_exit_date
+                french_stop_line = pda.FrenchStop.init_empty_df(
+                    index=r_price_data.loc[french_start_date:].index
+                )
+
+            french_stop_line.loc[
+                current_entry.partial_exit_date:, 'stop_price'
+            ] = prior_entry_price
+            french_stop_line.loc[
+                current_entry.partial_exit_date:, 'rg_id'
+            ] = rg_info.name
+            french_exit_signal = stop_calc.exit_signal(rg_price_data, french_stop_line.stop_price)
+            french_exit_date = french_stop_line.loc[french_exit_signal].first_valid_index()
+
+            if french_exit_date is not None:
+                french_stop_line.loc[french_exit_date:] = np.nan
+                french_stop_table.at[fs_id] = pd.Series(data={'start': french_start_date, 'end': french_exit_date})
+                query_prior_partial_exits = (
+                    valid_entries.partial_exit_date.notna() &
+                    (valid_entries.rg_id == rg_info.name) &
+                    (valid_entries.partial_exit_date < french_exit_date) &
+                    (valid_entries.partial_exit_date > french_stop_table.iloc[-1].end)
+                )
+                valid_entries.loc[query_prior_partial_exits, 'exit_signal_date'] = french_exit_date
+                french_stop_lines.append(french_stop_line.loc[french_start_date: french_exit_date])
+
+                french_start_date = None
+                fs_id += 1
+
+        if isinstance(french_stop_line, pd.DataFrame) and french_exit_date is None:
+            french_stop_lines.append(french_stop_line)
+
+    french_stop_line = pda.FrenchStop.init_empty_df(index=r_price_data.index)
+    if len(french_stop_lines) > 0:
+        combined_french_line = pd.concat(french_stop_lines)
+        french_stop_line.loc[combined_french_line.index] = combined_french_line
+
     if len(stop_lines) > 0:
         stop_prices = pd.concat(stop_lines)
     else:
@@ -596,7 +664,7 @@ def process_signal_data(
         assert valid_entries.empty  # TODO not sure if this can ever be false, so notify me in case it ever is
         valid_entries = pda.SignalTable.init_empty_df()
 
-    return valid_entries, stop_prices, french_stop
+    return valid_entries, stop_prices, french_stop_line
 
 
 def reduce_regime_candidates(
@@ -806,7 +874,7 @@ def init_signal_stop_loss_tables(
     abs_price_data,
 ) -> t.Tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
     raw_signals = get_all_entry_candidates(
-        price_data, regime_table, peak_table, entry_lvls, highest_peak_lvl
+        price_data, regime_table, peak_table, entry_lvls, highest_peak_lvl, offset_pct, r_multiplier
     )
     # over_under_by_price = np.sign(price_data.close - abs_price_data.close)
     # over_under_by_signal = over_under_by_price.loc[raw_signals.entry].reset_index(drop=True)

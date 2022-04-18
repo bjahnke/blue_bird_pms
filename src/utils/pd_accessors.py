@@ -319,10 +319,17 @@ class FrenchStop(Table):
             return data_copy
 
         # use the last idx up to -2 depending on size of signal table
-        signal = st.iloc[-min(len(st), 2)]
+        signal = st.loc[
+            st.partial_exit_date.notna() &
+            st.exit_signal_date >= st.iloc[-1].entry
+        ]
+        if signal.empty:
+            return data_copy
+
+        signal = signal.iloc[-min(len(st), 2)]
         new_french_stop = pt.close.loc[signal.entry]
-        data_copy.loc[st.iloc[-1].entry: rg_end, 'stop_price'] = new_french_stop
-        data_copy.loc[st.iloc[-1].entry: rg_end, 'rg_id'] = signal.rg_id
+        data_copy.loc[st.iloc[-1].partial_exit_date: rg_end, 'stop_price'] = new_french_stop
+        data_copy.loc[st.iloc[-1].partial_exit_date: rg_end, 'rg_id'] = signal.rg_id
 
         return data_copy
 

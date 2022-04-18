@@ -173,11 +173,11 @@ class AbcSwingParams:
         retrace = self.adj_sub(close_price)
         distance_threshold = retrace - self.dist_atr_levels
         pct_breach = (retrace / self.extreme_levels) - self.retrace_pct
-        # retrace = self.adj(close_price)
-        peak_discovery_date = close_price.loc[
+        peak_discovery = close_price.loc[
             (distance_threshold > 0) |
             (pct_breach > 0)
-        ].first_valid_index()
+        ]
+        peak_discovery_date = peak_discovery.first_valid_index()
         peak_date = self.get_peak_date(peak_discovery_date)
         return {'peak_date': peak_date, 'peak_discovery_date': peak_discovery_date}
 

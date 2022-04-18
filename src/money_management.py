@@ -16,39 +16,42 @@ class TrailStop:
     cum_extreme: str
     dir: int
 
-    def init_trail_stop(
-        self, price: pd.DataFrame, initial_trail_price, entry_date, rg_end_date
-    ) -> pd.Series:
-        """
-        :param rg_end_date:
-        :param entry_date:
-        :param price:
-        :param initial_trail_price:
-        :return:
-        """
-        # trail = price.close.loc[entry_date: rg_end_date] - (initial_trail_price * self.dir)
-        # trail = (trail * self.dir).cummax() * self.dir
+    # def init_trail_stop(
+    #     self, price: pd.DataFrame, initial_trail_price, entry_date, rg_end_date
+    # ) -> pd.Series:
+    #     """
+    #     :param rg_end_date:
+    #     :param entry_date:
+    #     :param price:
+    #     :param initial_trail_price:
+    #     :return:
+    #     """
+    #     # trail = price.close.loc[entry_date: rg_end_date] - (initial_trail_price * self.dir)
+    #     # trail = (trail * self.dir).cummax() * self.dir
+    #
+    #     entry_price = price.close.loc[entry_date]
+    #     trail_pct_from_entry = (entry_price - initial_trail_price) / entry_price
+    #     extremes = price.loc[entry_date:rg_end_date, self.pos_price_col]
+    #
+    #     # when short, pct should be negative, pushing modifier above one
+    #     trail_modifier = 1 - trail_pct_from_entry
+    #     # trail stop reaction must be delayed one bar since same bar reaction cannot be determined
+    #     trail_stop: pd.Series = (
+    #         getattr(extremes, self.cum_extreme)() * trail_modifier
+    #     ).shift(1)
+    #     # back patch nan after shifting
+    #     trail_stop.iat[0] = trail_stop.iat[1]
+    #
+    #     return trail_stop
 
-        entry_price = price.close.loc[entry_date]
-        trail_pct_from_entry = (entry_price - initial_trail_price) / entry_price
-        extremes = price.loc[entry_date:rg_end_date, self.pos_price_col]
+    def init_atr_stop(self, stop_line, entry_date, rg_end_date, modified_atr):
+        _sl = stop_line - (self.dir * modified_atr.loc[entry_date: rg_end_date])
+        return _sl
 
-        # when short, pct should be negative, pushing modifier above one
-        trail_modifier = 1 - trail_pct_from_entry
-        # trail stop reaction must be delayed one bar since same bar reaction cannot be determined
-        trail_stop: pd.Series = (
-            getattr(extremes, self.cum_extreme)() * trail_modifier
-        ).shift(1)
-        # back patch nan after shifting
-        trail_stop.iat[0] = trail_stop.iat[1]
-
-        return trail_stop
-
-    def init_atr_stop(self, price, initial_trail_price, entry_date, rg_end_date, modified_atr):
+    def init_trail_stop(self, price, initial_trail_price, entry_date, rg_end_date):
         init_trail_diff = abs(initial_trail_price - price.close.loc[entry_date])
         trail = price.close.loc[entry_date: rg_end_date] - (init_trail_diff * self.dir)
         trail = (trail * self.dir).cummax() * self.dir
-        trail = trail - (self.dir * modified_atr.loc[entry_date: rg_end_date])
         return trail
 
     def init_stop_loss(self, price, stop_price, entry_date, rg_end_date):

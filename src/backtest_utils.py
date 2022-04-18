@@ -272,6 +272,7 @@ if __name__ == '__main__':
     (__ticks, __price_glob, __bench,
      __benchmark_id, __interval_str,
      __interval, __data_loader) = load_scan_data(**args['load_data'])
+    __price_glob._data = __price_glob.data.ffill()
     list_of_tickers = split_list(__ticks, cpu_count()-1)
     # list_of_tickers = split_list(['OKE', 'CSCO', 'NLOK'], cpu_count()-1)
     start = perf_counter()
