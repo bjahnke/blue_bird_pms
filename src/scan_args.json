@@ -29,7 +29,7 @@
   },
   "scanner_settings": {
     "multiprocess": true,
-    "test_symbols": ["MMM"],
+    "test_symbols": ["MOS"],
     "restrict_side": false
   }
 }

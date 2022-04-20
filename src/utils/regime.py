@@ -172,14 +172,22 @@ class AbcSwingParams:
     def get_next_peak_data(self, close_price, prev_swing_price):
         retrace = self.adj_sub(close_price)
         distance_threshold = retrace - self.dist_atr_levels
-        pct_breach = (retrace / self.extreme_levels) - self.retrace_pct
+        pct_threshold = (retrace / self.extreme_levels) - self.retrace_pct
         peak_discovery = close_price.loc[
             (distance_threshold > 0) |
-            (pct_breach > 0)
+            (pct_threshold > 0)
         ]
         peak_discovery_date = peak_discovery.first_valid_index()
         peak_date = self.get_peak_date(peak_discovery_date)
-        return {'peak_date': peak_date, 'peak_discovery_date': peak_discovery_date}
+        dist_breach = None
+        pct_breach = None
+        if peak_discovery_date is not None:
+            dist_breach = distance_threshold.at[peak_discovery_date]
+            pct_breach = pct_threshold.at[peak_discovery_date]
+        return {'peak_date': peak_date,
+                'peak_discovery_date': peak_discovery_date,
+                'thresh_breach': dist_breach,
+                'pct_breach': pct_breach}
 
     def get_next_retrace_swing(self, close_price, prev_swing_price):
         distance = self.adj_sub(prev_swing_price)
@@ -430,7 +438,7 @@ def volatility_swings(px: pd.DataFrame, hi_sw_params: AbcSwingParams, lo_sw_para
         elif latest_swing_data['peak_discovery_date'] < latest_swing_discovery_date:
             latest_swing_data['peak_discovery_date'] = latest_swing_discovery_date
 
-    return pd.DataFrame(data=swing_data, columns=['start', 'end', 'type'])
+    return pd.DataFrame(data=swing_data, columns=['start', 'end', 'vlty_break', 'pct_break', 'type'])
 
 
 def initial_volatility_swing(_px, hi_sw_params, lo_sw_params, initial_price):

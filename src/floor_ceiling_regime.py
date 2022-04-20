@@ -218,14 +218,18 @@ def get_all_entry_candidates(
     except ValueError:
         raise NoEntriesError
 
-    signal_candidates = signal_candidates[['entry', 'en_px', 'dir', 'trail_stop', 'fixed_stop']]
+    signal_candidates = signal_candidates[['entry', 'en_px', 'dir', 'trail_stop', 'fixed_stop', 'vlty_break', 'pct_break']]
 
     pct_from_peak = 1 - (stop_loss_offset_pct * signal_candidates.dir)
     signal_candidates['fixed_stop_price'] = price.loc[signal_candidates.fixed_stop.values, 'close'].values * pct_from_peak
     signal_candidates['r_pct'] = (
             (signal_candidates.en_px - signal_candidates.fixed_stop_price) / signal_candidates.en_px
     )
-    signal_candidates = signal_candidates.loc[abs(signal_candidates.r_pct) < 0.15]
+    signal_candidates = signal_candidates.loc[
+        (abs(signal_candidates.r_pct) < 0.10) &
+        (signal_candidates.vlty_break < 40) &
+        (signal_candidates.pct_break < .035)
+    ].reset_index(drop=True)
     signal_candidates['target_price'] = (
             signal_candidates.en_px + (signal_candidates.en_px * signal_candidates.r_pct * r_multiplier)
     )
@@ -390,19 +394,21 @@ def draw_stop_line(
     stop_line = stop_calc.cap_trail_stop(stop_line, entry_price)
     stop_line = stop_calc.init_atr_stop(stop_line, entry_date, rg_end_date, _stop_modifier)
 
+    stop_loss_exit_signal = stop_calc.exit_signal(price, stop_line)
+    exit_signal_date = stop_line.loc[stop_loss_exit_signal].first_valid_index()
+
     target_exit_signal = stop_calc.target_exit_signal(price, target_price)
     partial_exit_date = stop_line.loc[target_exit_signal].first_valid_index()
 
-    if partial_exit_date is not None:
+    if exit_signal_date is None:
+        exit_signal_date = rg_end_date
+
+    if partial_exit_date is not None and partial_exit_date < exit_signal_date:
         stop_line.loc[partial_exit_date:] = fixed_stop_price
     else:
         partial_exit_date = np.nan
 
-    stop_loss_exit_signal = stop_calc.exit_signal(price, stop_line)
-    exit_signal_date = stop_line.loc[stop_loss_exit_signal].first_valid_index()
     # signal is active until signal end date is not the current date
-    if exit_signal_date is None:
-        exit_signal_date = rg_end_date
     stop_line = stop_line.loc[:exit_signal_date]
 
     return stop_line, exit_signal_date, partial_exit_date, stop_loss_exit_signal, fixed_stop_price
@@ -627,7 +633,7 @@ def process_signal_data(
 
             french_stop_line.loc[
                 current_entry.partial_exit_date:, 'stop_price'
-            ] = prior_entry_price
+            ] = prior_entry_price if prior_entry_price < current_entry.en_px else prior_entry_price
             french_stop_line.loc[
                 current_entry.partial_exit_date:, 'rg_id'
             ] = rg_info.name
@@ -726,7 +732,9 @@ def reduce_regime_candidates_new_leg(
             ((entry_prices.values - entry_price) * rg_info.rg) > 0
         ]
         # get new legs
-        _sw_after_entry = rg_peak_table.loc[rg_peak_table.end > entry_signal.entry]
+        _sw_after_entry = rg_peak_table.loc[
+            rg_peak_table.start > entry_signal.entry
+        ]
     except TypeError:
         # previous entry data is none (it is the first signal) make no new changes
         new_rg_entry_candidates = rg_entry_candidates
@@ -743,7 +751,8 @@ def reduce_regime_candidates_new_leg(
             # leg to select new entries
             if not _sw_after_entry.empty:
                 new_rg_entry_candidates = rg_entry_candidates.loc[
-                    rg_entry_candidates.entry >= _sw_after_entry.iloc[0].end
+                    (rg_entry_candidates.entry >= _sw_after_entry.iloc[0].end) &
+                    (((rg_entry_candidates.en_px - _sw_after_entry.iloc[0].st_px) * rg_info.rg) > 0)
                 ]
     return new_rg_entry_candidates
 
