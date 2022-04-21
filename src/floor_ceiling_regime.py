@@ -218,7 +218,7 @@ def get_all_entry_candidates(
     except ValueError:
         raise NoEntriesError
 
-    signal_candidates = signal_candidates[['entry', 'en_px', 'dir', 'trail_stop', 'fixed_stop', 'vlty_break', 'pct_break']]
+    signal_candidates = signal_candidates[['entry', 'en_px', 'dir', 'trail_stop', 'fixed_stop']]
 
     pct_from_peak = 1 - (stop_loss_offset_pct * signal_candidates.dir)
     signal_candidates['fixed_stop_price'] = price.loc[signal_candidates.fixed_stop.values, 'close'].values * pct_from_peak
@@ -226,9 +226,9 @@ def get_all_entry_candidates(
             (signal_candidates.en_px - signal_candidates.fixed_stop_price) / signal_candidates.en_px
     )
     signal_candidates = signal_candidates.loc[
-        (abs(signal_candidates.r_pct) < 0.10) &
-        (signal_candidates.vlty_break < 40) &
-        (signal_candidates.pct_break < .035)
+        (abs(signal_candidates.r_pct) < 0.10)
+        # (signal_candidates.vlty_break < 40) &
+        # (signal_candidates.pct_break < .035)
     ].reset_index(drop=True)
     signal_candidates['target_price'] = (
             signal_candidates.en_px + (signal_candidates.en_px * signal_candidates.r_pct * r_multiplier)

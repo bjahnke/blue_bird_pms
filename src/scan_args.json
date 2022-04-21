@@ -29,7 +29,7 @@
   },
   "scanner_settings": {
     "multiprocess": true,
-    "test_symbols": ["MOS"],
+    "test_symbols": ["NWSA"],
     "restrict_side": false
   }
 }
