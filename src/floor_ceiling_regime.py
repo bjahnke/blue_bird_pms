@@ -6,129 +6,9 @@ import typing as t
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
-
-import src.utils.pd_accessors as pda
-from src.utils import trading_stats as ts, regime
-import src.utils.regime
-import src.money_management as mm
-import old_regime_functions as orf
-
-
-def relative(
-    df, _o, _h, _l, _c, bm_df, bm_col, ccy_df, ccy_col, dgt, start, end, rebase=True
-):
-    """
-    df: df
-    bm_df, bm_col: df benchmark dataframe & column name
-    ccy_df,ccy_col: currency dataframe & column name
-    dgt: rounding decimal
-    start/end: string or offset
-    rebase: boolean rebase to beginning or continuous series
-    """
-    # Slice df dataframe from start to end period: either offset or datetime
-    df = df[start:end]
-
-    # inner join of benchmark & currency: only common values are preserved
-    df = df.join(bm_df[[bm_col]], how="inner")
-    df = df.join(ccy_df[[ccy_col]], how="inner")
-
-    # rename benchmark name as bm and currency as ccy
-    df.rename(columns={bm_col: "bm", ccy_col: "ccy"}, inplace=True)
-
-    # Adjustment factor: calculate the scalar product of benchmark and currency
-    df["bmfx"] = round(df["bm"].mul(df["ccy"]), dgt).fillna(method="ffill")
-    if rebase == True:
-        df["bmfx"] = df["bmfx"].div(df["bmfx"][0])
-
-    # Divide absolute price by fxcy adjustment factor and rebase to first value
-    df["r" + str(_o)] = round(df[_o].div(df["bmfx"]), dgt)
-    df["r" + str(_h)] = round(df[_h].div(df["bmfx"]), dgt)
-    df["r" + str(_l)] = round(df[_l].div(df["bmfx"]), dgt)
-    df["r" + str(_c)] = round(df[_c].div(df["bmfx"]), dgt)
-    df = df.drop(["bm", "ccy", "bmfx"], axis=1)
-
-    return df
-
-
-def full_peak_lag(df, asc_peaks) -> pd.DataFrame:
-    """
-    calculates distance from highest level peak to the time it was discovered
-    value is not nan if peak, does not matter if swing low or swing high
-    :param df:
-    :param asc_peaks: peak level columns in ascending order
-    :return:
-    """
-    # desire lag for all peak levels greater than 1,
-    # so if [hi1, hi2, hi3] given,
-    # group by [[hi1, hi2], [hi1, hi2, hi3]] to get lag for level 2 and level 3
-    lag_groups = []
-    for end_idx in range(1, len(asc_peaks)):
-        lag_group = [asc_peaks[i] for i in range(end_idx + 1)]
-        lag_groups.append(lag_group)
-    full_pivot_table = pd.DataFrame(columns=["start", "end", "type"])
-
-    for lag_group in lag_groups:
-        highest_peak_col = lag_group[-1]
-        highest_peak = df[highest_peak_col]
-        prior_peaks = df[lag_group[-2]]
-
-        # will hold the lowest level peaks
-        follow_peaks, lag_pivot_table = get_follow_peaks(highest_peak, prior_peaks)
-        i = len(lag_group) - 3
-        while i >= 0:
-            lag_pivot_table = lag_pivot_table.drop(columns=[prior_peaks.name])
-            prior_peaks_col = lag_group[i]
-            prior_peaks = df[prior_peaks_col]
-            follow_peaks, short_lag_pivot_table = get_follow_peaks(
-                follow_peaks, prior_peaks
-            )
-            lag_pivot_table[prior_peaks_col] = short_lag_pivot_table[prior_peaks_col]
-
-            i -= 1
-        lag_pivot_table = lag_pivot_table.melt(
-            id_vars=[prior_peaks.name],
-            value_vars=[highest_peak_col],
-            var_name="type",
-            value_name="start",
-        )
-        lag_pivot_table = lag_pivot_table.rename(columns={prior_peaks.name: "end"})
-        full_pivot_table = pd.concat([full_pivot_table, lag_pivot_table])
-
-    full_pivot_table = full_pivot_table[["start", "end", "type"]].reset_index(drop=True)
-    full_pivot_table["lvl"] = pd.to_numeric(full_pivot_table.type.str.slice(start=-1))
-    full_pivot_table["type"] = np.where(
-        full_pivot_table.type.str.slice(stop=-1) == "hi", -1, 1
-    )
-    return full_pivot_table
-
-
-def get_follow_peaks(
-    current_peak: pd.Series, prior_peaks: pd.Series
-) -> t.Tuple[pd.Series, pd.DataFrame]:
-    """
-    calculates lage between current peak and next level peak.
-    helper function, must be used sequentially from current level down to lvl 1 peak
-    to get full lag
-    :param current_peak:
-    :param prior_peaks:
-    :return:
-    """
-    pivot_table = pd.DataFrame(columns=[current_peak.name, prior_peaks.name])
-    follow_peaks = pd.Series(index=current_peak.index, dtype=pd.Float64Dtype())
-
-    for r in current_peak.dropna().iteritems():
-        # slice df starting with r swing, then exclude r swing, drop nans, then only keep the first row
-        # gets the first swing of the prior level after the current swing of the current level.
-        current_peak_date = r[0]
-        follow_peak = prior_peaks.loc[current_peak_date:].iloc[1:].dropna().iloc[:1]
-        if len(follow_peak) > 0:
-            follow_peaks.loc[follow_peak.index[0]] = follow_peak.iloc[0]
-            df = pd.DataFrame({
-                    prior_peaks.name: [follow_peak.index[0]],
-                    current_peak.name: [current_peak_date],
-            })
-            pivot_table = pd.concat([pivot_table, df], axis=0, ignore_index=True)
-    return follow_peaks, pivot_table
+import pandas_accessors.accessors as pda
+import pandas_accessors.utils as ts
+import regime
 
 
 def regime_ranges(df, rg_col: str):
@@ -171,6 +51,8 @@ def get_all_entry_candidates(
         - add fixed_stop_date to output
         - add trail_stop_date to output
     peaks: start(date: peak location), end(date: peak discovery), type
+    :param stop_loss_offset_pct:
+    :param r_multiplier:
     :param price:
     :param highest_peak_lvl:
     :param entry_lvls:
@@ -344,7 +226,7 @@ def get_target_price(stop_price, entry_price, r_multiplier):
 
 
 def draw_stop_line(
-    stop_calc: mm.TrailStop,
+    stop_calc: ts.TrailStop,
     price: pd.DataFrame,
     trail_stop_date,
     fixed_stop_price,
@@ -363,11 +245,8 @@ def draw_stop_line(
     :param rg_end_date:
     :param stop_calc:
     :param entry_date:
-    :param r_multiplier:
     :param price:
     :param trail_stop_date:
-    :param fixed_stop_date:
-    :param offset_pct:
     :return:
     """
     _stop_modifier = atr * 2
@@ -401,7 +280,7 @@ def draw_stop_line(
 
 
 def draw_fixed_stop(
-    stop_calc: mm.TrailStop,
+    stop_calc: ts.TrailStop,
     price: pd.DataFrame,
     trail_stop_date,
     fixed_stop_date,
@@ -456,10 +335,10 @@ def process_signal_data(
     atr = regime.average_true_range(r_price_data, 14)
 
     trail_map = {
-        1: mm.TrailStop(
+        1: ts.TrailStop(
             pos_price_col="close", neg_price_col="close", cum_extreme="cummax", dir=1
         ),
-        -1: mm.TrailStop(
+        -1: ts.TrailStop(
             pos_price_col="close", neg_price_col="close", cum_extreme="cummin", dir=-1
         ),
     }
@@ -813,7 +692,7 @@ def init_peak_table(
     price_data: pd.DataFrame, distance_pct, retrace_pct, swing_window, sw_lvl
 ):
     """initialization of peak table bundled together"""
-    swings, peak_table = src.utils.regime.init_swings(
+    swings, peak_table = regime.init_swings(
         df=price_data,
         dist_pct=distance_pct,
         retrace_pct=retrace_pct,
@@ -843,7 +722,7 @@ def init_regime_table(
 ):
     """initialization of regime table bundled together"""
 
-    data_with_regimes = src.utils.regime.regime_floor_ceiling(
+    data_with_regimes = regime.regime_floor_ceiling(
         df=enhanced_price_data,
         peak_table=peak_table,
         sw_lvl=sw_lvl,
@@ -889,238 +768,6 @@ def init_signal_stop_loss_tables(
         offset_pct=offset_pct,
         r_multiplier=r_multiplier,
     )
-
-
-def win_rate_calc(
-    price_data: pd.DataFrame,
-    signals: pd.DataFrame,
-    min_periods,
-    round_to=2,
-):
-    """"""
-    price_data = round(price_data, round_to)
-    signal_table = pda.SignalTable(signals.copy())
-    signal_table.data["trade_count"] = signal_table.counts
-    signals_un_pivot = signal_table.unpivot(valid_dates=price_data.index)
-    signals_un_pivot = signals_un_pivot.loc[
-        ~signals_un_pivot.index.duplicated(keep="last")
-    ]
-    signals_un_pivot = signals_un_pivot[['dir', 'trade_count']]
-    signals_un_pivot = expand_index(signals_un_pivot, price_data.index)
-    signals_un_pivot.dir = signals_un_pivot.dir.fillna(0)
-
-    passive_returns_1d = ts.simple_log_returns(price_data.close)
-    signals_un_pivot["strategy_returns_1d"] = passive_returns_1d * signals_un_pivot.dir
-    # don't use entry date to calculate returns
-    signals_un_pivot.loc[signal_table.entry, "strategy_returns_1d"] = 0
-    strategy_returns_1d = signals_un_pivot.strategy_returns_1d.copy()
-    cumul_returns = ts.cumulative_returns_pct(strategy_returns_1d, min_periods)
-    # Cumulative t-stat
-    win_count = (
-        strategy_returns_1d.loc[strategy_returns_1d > 0]
-        .expanding()
-        .count()
-        .fillna(method="ffill")
-    )
-
-    total_count = (
-        strategy_returns_1d.loc[strategy_returns_1d != 0]
-        .expanding()
-        .count()
-        .fillna(method="ffill")
-    )
-    win_rate = (win_count / total_count).fillna(method="ffill")
-    return win_rate
-
-
-def calc_stats(
-    price_data: pd.DataFrame,
-    signals: pd.DataFrame,
-    min_periods: int,
-    window: int,
-    percentile: float,
-    limit,
-    round_to=2,
-) -> t.Union[None, pd.DataFrame]:
-    """
-    get full stats of strategy, rolling and expanding
-    :param round_to:
-    :param freq:
-    :param signals:
-    :param price_data:
-    :param min_periods:
-    :param window:
-    :param percentile:
-    :param limit:
-    :return:
-    """
-    price_data = round(price_data, round_to)
-    # TODO include regime returns
-    signal_table = pda.SignalTable(signals.copy())
-    signal_table.data["trade_count"] = signal_table.counts
-    signals_un_pivot = signal_table.unpivot(valid_dates=price_data.index)
-    signals_un_pivot = signals_un_pivot.loc[
-        ~signals_un_pivot.index.duplicated(keep="last")
-    ]
-    signals_un_pivot = signals_un_pivot[['dir', 'trade_count']]
-    signals_un_pivot = expand_index(signals_un_pivot, price_data.index)
-    signals_un_pivot.dir = signals_un_pivot.dir.fillna(0)
-
-    passive_returns_1d = ts.simple_log_returns(price_data.close)
-    signals_un_pivot["strategy_returns_1d"] = passive_returns_1d * signals_un_pivot.dir
-    # don't use entry date to calculate returns
-    signals_un_pivot.loc[signal_table.entry, "strategy_returns_1d"] = 0
-    strategy_returns_1d = signals_un_pivot.strategy_returns_1d.copy()
-
-    # Performance
-    cumul_passive = ts.cumulative_returns_pct(passive_returns_1d, min_periods)
-    cumul_returns = ts.cumulative_returns_pct(strategy_returns_1d, min_periods)
-    cumul_excess = cumul_returns - cumul_passive - 1
-    cumul_returns_pct = cumul_returns.copy()
-
-    # Robustness metrics
-    grit_expanding = ts.expanding_grit(cumul_returns)
-    grit_roll = ts.rolling_grit(cumul_returns, window)
-
-    tr_expanding = ts.expanding_tail_ratio(cumul_returns, percentile, limit)
-    tr_roll = ts.rolling_tail_ratio(cumul_returns, window, percentile, limit)
-
-    profits_expanding = ts.expanding_profits(strategy_returns_1d)
-    losses_expanding = ts.expanding_losses(strategy_returns_1d)
-    pr_expanding = ts.profit_ratio(profits=profits_expanding, losses=losses_expanding)
-
-    profits_roll = ts.rolling_profits(strategy_returns_1d, window)
-    losses_roll = ts.rolling_losses(strategy_returns_1d, window)
-    pr_roll = ts.profit_ratio(profits=profits_roll, losses=losses_roll)
-
-    # Cumulative t-stat
-    win_count = (
-        strategy_returns_1d.loc[strategy_returns_1d > 0]
-        .expanding()
-        .count()
-        .fillna(method="ffill")
-    )
-
-    total_count = (
-        strategy_returns_1d.loc[strategy_returns_1d != 0]
-        .expanding()
-        .count()
-        .fillna(method="ffill")
-    )
-
-    csr_expanding = ts.common_sense_ratio(pr_expanding, tr_expanding)
-    csr_roll = ts.common_sense_ratio(pr_roll, tr_roll)
-    csr_roll = expand_index(csr_roll, price_data.index).ffill()
-
-    # Trade Count
-    trade_count = signals_un_pivot["trade_count"]
-    trade_count = expand_index(trade_count, price_data.index).ffill().fillna(0)
-    signal_roll = trade_count.diff(window)
-
-    win_rate = (win_count / total_count).fillna(method="ffill")
-    avg_win = profits_expanding / total_count
-    avg_loss = losses_expanding / total_count
-    edge_expanding = ts.expectancy(win_rate, avg_win, avg_loss).fillna(method="ffill")
-    sqn_expanding = ts.t_stat(trade_count, edge_expanding)
-
-    win_roll = strategy_returns_1d.copy()
-    win_roll[win_roll <= 0] = np.nan
-    win_rate_roll = win_roll.rolling(window, min_periods=0).count() / window
-    avg_win_roll = profits_roll / window
-    avg_loss_roll = losses_roll / window
-
-    edge_roll = ts.expectancy(
-        win_rate=win_rate_roll, avg_win=avg_win_roll, avg_loss=avg_loss_roll
-    )
-    sqn_roll = ts.t_stat(signal_count=signal_roll, trading_edge=edge_roll)
-
-    score_expanding = ts.robustness_score(grit_expanding, csr_expanding, sqn_expanding)
-    score_roll = ts.robustness_score(grit_roll, csr_roll, sqn_roll)
-    stat_sheet_dict = {
-        # Note: commented out items should be included afterwords
-        # 'ticker': symbol,
-        # 'tstmt': ticker_stmt,
-        # 'st': st,
-        # 'mt': mt,
-        "perf": cumul_returns_pct,
-        "excess": cumul_excess,
-        "trades": trade_count,
-        "win": win_rate,
-        "win_roll": win_rate_roll,
-        "avg_win": avg_win,
-        "avg_win_roll": avg_win_roll,
-        "avg_loss": avg_loss,
-        "avg_loss_roll": avg_loss_roll,
-        # 'geo_GE': round(geo_ge, 4),
-        "expectancy": edge_expanding,
-        "edge_roll": edge_roll,
-        "grit": grit_expanding,
-        "grit_roll": grit_roll,
-        "csr": csr_expanding,
-        "csr_roll": csr_roll,
-        "pr": pr_expanding,
-        "pr_roll": pr_roll,
-        "tail": tr_expanding,
-        "tail_roll": tr_roll,
-        "sqn": sqn_expanding,
-        "sqn_roll": sqn_roll,
-        "risk_adjusted_returns": score_expanding,
-        "risk_adj_returns_roll": score_roll,
-    }
-
-    historical_stat_sheet = pd.DataFrame.from_dict(stat_sheet_dict)
-    # historical_stat_sheet = historical_stat_sheet.ffill()
-
-    return historical_stat_sheet
-
-
-def expand_index(gap_data, full_index):
-    """insert indexes into the given gap data"""
-    try:
-        expanded_idx = gap_data.__class__(index=full_index, columns=gap_data.columns, dtype='float64')
-    except AttributeError:
-        expanded_idx = gap_data.__class__(index=full_index, dtype='float64')
-    expanded_idx.loc[gap_data.index] = gap_data
-    return expanded_idx
-
-
-def price_data_to_relative_series(
-    symbols: t.List[str], bench_symbol: str, interval: str, days: int, from_cache=False
-) -> pd.DataFrame:
-    """
-    TODO optional fx data
-    translate all given tickers to relative data and plot
-    """
-    file_name_fmt = "{0}_{1}_{2}d.csv".format
-    data_path_fmt = r"..\strategy_output\price_data\{0}".format
-    r_out_fmt = "r{0}_{1}_{2}d.csv".format
-
-    bench_file_name = file_name_fmt(bench_symbol, interval, days)
-    bench_data = pd.read_csv(data_path_fmt(bench_file_name))
-    bench_data = bench_data.set_index("Datetime").rename(columns={"close": "spy_close"})
-    r_data = pd.DataFrame(index=bench_data.index)
-
-    for i, symbol in enumerate(symbols):
-        file_name = file_name_fmt(symbol, interval, days)
-        price_data = pd.read_csv(data_path_fmt(file_name))
-        price_data = price_data.set_index("Datetime")
-        # if symbol == 'FB':
-        #     price_data.close.plot()
-        #     plt.show()
-
-        # TODO NOTE: try added because original price data was overwritten
-        #   remove with price data can be corrected (write files to different folders in the future
-        try:
-            r_symbol_data = regime.relative(price_data, bench_data, bm_col="spy_close")[
-                ["ropen", "rhigh", "rlow", "rclose"]
-            ]
-        except KeyError:
-            continue
-        r_symbol_data.to_csv(data_path_fmt(r_out_fmt(symbol, interval, days)))
-        r_data[symbol] = r_symbol_data["rclose"]
-        print(f"({i}/{len(symbols)}) {symbol}")
-
-    return r_data
 
 
 if __name__ == "__main__":
