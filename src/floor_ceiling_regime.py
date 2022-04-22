@@ -50,23 +50,6 @@ def relative(
     return df
 
 
-def update_sw_lag(swing_lags: pd.Series, swings: pd.Series, discovered_sw_dates):
-    """
-    Note this function updates args passed for swing_lags and discovered_sw_dates
-    :param swing_lags:
-    :param swings:
-    :param discovered_sw_dates:
-    :return:
-    """
-    swing_lags = swing_lags.reindex(swings.index)
-    latest_sw = swings.loc[~pd.isna(swings)].iloc[-1:]
-    if latest_sw.index not in discovered_sw_dates:
-        swing_lags.loc[latest_sw.index[0] :] = latest_sw[0]
-        discovered_sw_dates.append(latest_sw.index)
-
-    return swing_lags
-
-
 def full_peak_lag(df, asc_peaks) -> pd.DataFrame:
     """
     calculates distance from highest level peak to the time it was discovered
@@ -220,13 +203,16 @@ def get_all_entry_candidates(
 
     signal_candidates = signal_candidates[['entry', 'en_px', 'dir', 'trail_stop', 'fixed_stop']]
 
-    pct_from_peak = 1 - (stop_loss_offset_pct * signal_candidates.dir)
+    if stop_loss_offset_pct == 0:
+        pct_from_peak = 1
+    else:
+        pct_from_peak = 1 - (stop_loss_offset_pct * signal_candidates.dir)
     signal_candidates['fixed_stop_price'] = price.loc[signal_candidates.fixed_stop.values, 'close'].values * pct_from_peak
     signal_candidates['r_pct'] = (
             (signal_candidates.en_px - signal_candidates.fixed_stop_price) / signal_candidates.en_px
     )
     signal_candidates = signal_candidates.loc[
-        (abs(signal_candidates.r_pct) < 0.10)
+        (abs(signal_candidates.r_pct) < 0.05)
         # (signal_candidates.vlty_break < 40) &
         # (signal_candidates.pct_break < .035)
     ].reset_index(drop=True)
@@ -517,7 +503,7 @@ def process_signal_data(
             #     rg_peak_table
             # )
 
-            rg_entry_candidates = reduce_regime_candidates_new_leg(
+            rg_entry_candidates = reduce_regime_candidates(
                 rg_entry_candidates,
                 r_price_data,
                 entry_price,

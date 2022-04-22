@@ -12,9 +12,8 @@ setup(
     install_requires=[
         'numpy',
         'pandas',
-        'matplotlib',
-        'yfinance',
         'scipy',
-        'feather'
+        'pandas_accessors @ git+https://github.com/bjahnke/pandas_accessors.git#egg=pandas_accessors',
+        'regime @ git+https://github.com/bjahnke/regime.git#egg=regime',
     ]
 )
