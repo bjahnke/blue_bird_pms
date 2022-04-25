@@ -373,10 +373,10 @@ def process_signal_data(
                 break
 
             if entry_signal is not None:
+                trail_stop_price = r_price_data.close.at[entry_signal.trail_stop]
                 rg_entry_candidates = reduce_regime_candidates(
                     rg_entry_candidates,
-                    r_price_data,
-                    entry_signal.fixed_stop_price,
+                    trail_stop_price,
                     entry_signal,
                     rg_info,
                     rg_peak_table
@@ -530,8 +530,7 @@ def process_signal_data(
 
 def reduce_regime_candidates(
         rg_entry_candidates: pd.DataFrame,
-        price_data: pd.DataFrame,
-        entry_price: t.Union[float, None],
+        entry_limit: t.Union[float, None],
         entry_signal: t.Union[pd.Series, None],
         rg_info: pd.Series,
         rg_peak_table: pd.DataFrame,
@@ -546,12 +545,11 @@ def reduce_regime_candidates(
     # after the leg
 
     """
-    entry_prices = price_data.loc[rg_entry_candidates.entry, "close"]
     try:
         # filter for entries that are within the previous entry
         new_rg_entry_candidates = rg_entry_candidates.loc[
-            ((entry_prices.values - entry_price) * rg_info.rg) > 0
-        ]
+            ((rg_entry_candidates.st_px.values - entry_limit) * rg_info.rg) > 0
+            ]
         # get new legs
         _sw_after_entry = rg_peak_table.loc[rg_peak_table.end > entry_signal.entry]
     except TypeError:
