@@ -83,7 +83,7 @@ def get_all_entry_candidates(
     except ValueError:
         raise NoEntriesError
 
-    signal_candidates = signal_candidates[['entry', 'en_px', 'dir', 'trail_stop', 'fixed_stop']]
+    signal_candidates = signal_candidates[['entry', 'en_px', 'st_px', 'dir', 'trail_stop', 'fixed_stop']]
 
     if stop_loss_offset_pct == 0:
         pct_from_peak = 1
