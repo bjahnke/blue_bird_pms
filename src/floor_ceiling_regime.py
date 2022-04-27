@@ -786,6 +786,7 @@ def init_entries_to_order_table(entry_signals: pd.DataFrame, r_multiplier):
 
 
 def init_exit_table(entry_signals, regime_table, price_data, atr):
+    """TODO add orders due to french stop"""
     trail_map = {
         1: ts.TrailStop(
             pos_price_col="close", neg_price_col="close", cum_extreme="cummax", dir=1
