@@ -94,6 +94,7 @@ def get_all_entry_candidates(
             (signal_candidates.en_px - signal_candidates.fixed_stop_price) / signal_candidates.en_px
     )
     signal_candidates = signal_candidates.loc[
+        (signal_candidates.r_pct != 0.00) &
         (abs(signal_candidates.r_pct) < 0.05)
         # (signal_candidates.vlty_break < 40) &
         # (signal_candidates.pct_break < .035)
@@ -265,7 +266,7 @@ def draw_stop_line(
     target_exit_signal = stop_calc.target_exit_signal(price, target_price)
     partial_exit_date = stop_line.loc[target_exit_signal].first_valid_index()
 
-    if exit_signal_date is None and rg_end_date < price.index[-1]:
+    if exit_signal_date is None:
         exit_signal_date = rg_end_date
 
     if partial_exit_date is not None and partial_exit_date < exit_signal_date:
@@ -404,25 +405,6 @@ def process_signal_data(
                 rg_end_date=end,
                 atr=atr
             )
-            if exit_signal_date is None:
-                exit_signal_date = end
-            # (
-            #     stop_line,
-            #     exit_signal_date,
-            #     partial_exit_date,
-            #     stop_loss_exit_signal,
-            #     fixed_stop_price,
-            # ) = draw_fixed_stop(
-            #     stop_calc=stop_calc,
-            #     price=r_price_data,
-            #     trail_stop_date=entry_signal.trail_stop,
-            #     fixed_stop_date=entry_signal.fixed_stop,
-            #     entry_date=entry_signal.entry,
-            #     offset_pct=offset_pct,
-            #     r_multiplier=r_multiplier,
-            #     rg_end_date=end,
-            # )
-            # crop last signal at entry
             if len(stop_lines) > 0:
                 try:
                     stop_lines[-1] = stop_lines[-1].iloc[
@@ -439,26 +421,6 @@ def process_signal_data(
             entry_signal_data["rg_id"] = rg_info.name
 
             valid_entries = pd.concat([valid_entries, entry_signal_data.to_frame().transpose()], ignore_index=True)
-
-            # french_stop_line = pda.FrenchStop(french_stop_line).update(
-            #     r_price_data,
-            #     valid_entries.loc[valid_entries.rg_id == rg_info.name],
-            #     rg_end=end
-            # )
-            # french_exit_signal = stop_calc.exit_signal(rg_price_data, french_stop_line.stop_price)
-            # french_exit_date = french_stop_line.loc[french_exit_signal].first_valid_index()
-            #
-            # # set exits for still open reduced-risk positions
-            #
-            # if french_exit_date is not None:
-            #     update_stop_query = (
-            #         (pd.notna(valid_entries.partial_exit_date)) &
-            #         (french_exit_date < valid_entries.exit_signal_date)
-            #     )
-            #     update_stop_query.iloc[-1] = False
-            #     # valid_entries.iloc[:-2].loc[update_stop_query, 'exit_signal_date'] = french_exit_date
-            #     # valid_entries.iloc[:-2, valid_entries.columns.get_loc('exit_signal_date')] = french_exit_date
-            #     valid_entries.loc[update_stop_query, 'exit_signal_date'] = french_exit_date
 
             start = exit_signal_date
             if not pd.isna(partial_exit_date):
@@ -636,7 +598,6 @@ def fc_scale_strategy(
     entry_lvls: t.List[int] = None,
     highest_peak_lvl: int = 3,
 ) -> FcStrategyTables:
-    """fc strategy with simulated entries and exits"""
     if entry_lvls is None:
         entry_lvls = [2]
 
@@ -658,7 +619,7 @@ def fc_scale_strategy(
         peak_table=peak_table
     )
 
-    valid_entries, stop_loss_series, french_stop = init_simulated_signal_stop_loss(
+    valid_entries, stop_loss_series, french_stop = init_signal_stop_loss_tables(
         price_data,
         regime_table,
         peak_table,
@@ -677,166 +638,6 @@ def fc_scale_strategy(
         stop_loss_series,
         french_stop
     )
-
-
-def floor_ceiling_analysis(
-    price_data: pd.DataFrame,
-    distance_pct=0.05,
-    retrace_pct=0.05,
-    swing_window=63,
-    sw_lvl=3,
-    regime_threshold=1.5,
-) -> t.Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """fc strategy with simulated entries and exits"""
-
-    peak_table, enhanced_price_data = init_peak_table(
-        price_data=price_data,
-        distance_pct=distance_pct,
-        retrace_pct=retrace_pct,
-        swing_window=swing_window,
-        sw_lvl=sw_lvl,
-    )
-
-    standard_dev = price_data.close.rolling(swing_window).std(ddof=0)
-
-    regime_table, enhanced_price_data = init_regime_table(
-        enhanced_price_data=enhanced_price_data,
-        sw_lvl=sw_lvl,
-        standard_dev=standard_dev,
-        regime_threshold=regime_threshold,
-        peak_table=peak_table
-    )
-    return peak_table, enhanced_price_data, regime_table
-
-
-def fc_active_trading(
-    floor_ceiling_params,
-    signal_gen_params,
-):
-    peak_table, price_data, regime_table = floor_ceiling_analysis(**floor_ceiling_params)
-    regime_table = regime_table.iloc[-2:]
-
-
-def signal_generator(
-        peak_table, price_data, regime_table,
-        prior_entry_data,
-        position_type: str = 'share',
-        trail_offset_pct=0.01,
-        r_multiplier=1.5,
-        highest_peak_lvl: int = 3,
-        capital=30000,
-        base_risk=-.0075,
-        entry_lvls: t.List[int] = None,
-):
-    """
-    :param peak_table:
-    :param price_data:
-    :param regime_table:
-    :param prior_entries: prior entries executed, logged by order execution module
-    :param position_type:
-    :param trail_offset_pct:
-    :param r_multiplier:
-    :param highest_peak_lvl:
-    :param capital:
-    :param base_risk:
-    :param entry_lvls:
-    :return:
-    """
-    prior_entries = prior_entry_data.entries
-
-    if entry_lvls is None:
-        entry_lvls = [2]
-
-    entry_signals = get_all_entry_candidates(price_data, regime_table.iloc[-1:], peak_table, entry_lvls,
-                             highest_peak_lvl, trail_offset_pct, r_multiplier)
-    # pda.SignalTable(entry_signals).init_eqty_risk_nominal_sizes(capital, base_risk)
-    atr = regime.average_true_range(price_data, 14)
-    partial_exit_orders, exit_orders, stop_lines = init_exit_table(prior_entries, regime_table, price_data, atr)
-    latest_entry = None
-    rg_info = regime_table.iloc[-1]
-    if not prior_entries.empty:
-        latest_entry = prior_entries.iloc[-1]
-        latest_partial_exit = partial_exit_orders.loc[partial_exit_orders.entry_id == prior_entries.index[-1]]
-        if not latest_partial_exit.empty:
-            latest_partial_exit = latest_partial_exit.iloc[-1]
-            entry_signals = entry_signals.loc[entry_signals.entry > latest_partial_exit.price_id]
-        trail_stop_price = price_data.close.at[latest_entry.trail_stop]
-        rg_peak_table = peak_table.loc[
-            (peak_table.end >= rg_info.start) &
-            (peak_table.end < rg_info.end) &
-            (peak_table.lvl == 3) &
-            (peak_table.type == rg_info.rg)
-            ]
-        entry_signals = reduce_regime_candidates(entry_signals, trail_stop_price,
-                                                 latest_entry, rg_info, rg_peak_table)
-
-    entry_signals = entry_signals.loc[entry_signals.entry == price_data.index[-1]]
-
-    return entry_signals
-
-
-def init_entries_to_order_table(entry_signals: pd.DataFrame, r_multiplier):
-    mean_reversion = []
-    trend_following = []
-
-    mean_reversion_orders = pd.DataFrame({'entry_id': entry_signals.index, 'dir': entry_signals.dir})
-    trend_following = pd.DataFrame({'entry_id'})
-    for idx, entry in entry_signals.iterrows():
-        mean_reversion.append(())
-
-
-def init_exit_table(entry_signals, regime_table, price_data, atr):
-    """TODO add orders due to french stop"""
-    trail_map = {
-        1: ts.TrailStop(
-            pos_price_col="close", neg_price_col="close", cum_extreme="cummax", dir=1
-        ),
-        -1: ts.TrailStop(
-            pos_price_col="close", neg_price_col="close", cum_extreme="cummin", dir=-1
-        ),
-    }
-    exit_orders = []
-    partial_exit_orders = []
-    stop_lines = []
-    for entry_id, data in entry_signals.iterrows():
-        stop_calc = trail_map[data.dir]
-        end = regime_table.loc[data.rg_id, 'end']
-        (
-            stop_line,
-            exit_signal_date,
-            partial_exit_date,
-            stop_loss_exit_signal,
-            fixed_stop_price,
-        ) = draw_stop_line(
-            stop_calc=stop_calc,
-            price=price_data,
-            trail_stop_date=data.trail_stop,
-            fixed_stop_price=data.fixed_stop_price,
-            entry_date=data.entry,
-            entry_price=data.en_px,
-            target_price=data.target_price,
-            rg_end_date=end,
-            atr=atr
-        )
-        stop_lines.append(stop_line)
-        if partial_exit_date is not None:
-            partial_exit_orders.append((entry_id, partial_exit_date, data.dir))
-
-        if exit_signal_date is not None:
-            exit_orders.append((entry_id, exit_signal_date, data.dir))
-
-    exit_order_cols = ['entry_id', 'price_id', 'type']
-    partial_exit_orders = pd.DataFrame(partial_exit_orders, columns=exit_order_cols)
-    exit_orders = pd.DataFrame(exit_orders, columns=exit_order_cols)
-    return partial_exit_orders, exit_orders, stop_lines
-
-
-def assign_exit_values(partial_exit_orders, exit_orders, r_multiplier, close_resolution: float):
-
-    partial_exit_pct = partial_exit_orders.close_pct / r_multiplier
-    remaining_exit_pct = partial_exit_orders.close_pct - partial_exit_pct
-    partial_exit_orders.close_pct = partial_exit_shares
-    exit_orders.loc[partial_exit_orders.entry_id == exit_orders.entry_id, 'shares'] = remaining_exit_shares
 
 
 def init_peak_table(
@@ -888,7 +689,7 @@ def init_regime_table(
     return regime_ranges(data_with_regimes, "rg"), data_with_regimes
 
 
-def init_simulated_signal_stop_loss(
+def init_signal_stop_loss_tables(
     price_data,
     regime_table,
     peak_table,
@@ -918,21 +719,6 @@ def init_simulated_signal_stop_loss(
         peak_table,
         offset_pct=offset_pct,
         r_multiplier=r_multiplier,
-    )
-
-
-def init_entry_table(
-    price_data,
-    regime_table,
-    peak_table,
-    entry_lvls,
-    highest_peak_lvl,
-    offset_pct,
-    r_multiplier,
-    prior_entry_table: pd.DataFrame
-) -> t.Tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
-    raw_signals = get_all_entry_candidates(
-        price_data, regime_table, peak_table, entry_lvls, highest_peak_lvl, offset_pct, r_multiplier
     )
 
 
