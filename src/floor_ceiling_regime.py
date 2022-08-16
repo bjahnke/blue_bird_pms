@@ -579,9 +579,9 @@ class FcStrategyTables:
     enhanced_price_data: pd.DataFrame
     peak_table: pd.DataFrame
     regime_table: pd.DataFrame
-    valid_entries: pd.DataFrame
-    stop_loss_series: pd.Series
-    french_stop: pd.DataFrame
+    valid_entries: pd.DataFrame = field(default=None)
+    stop_loss_series: pd.Series = field(default=None)
+    french_stop: pd.DataFrame = field(default=None)
     stats_history: pd.DataFrame = field(init=False)
 
 
@@ -637,6 +637,47 @@ def fc_scale_strategy(
         valid_entries,
         stop_loss_series,
         french_stop
+    )
+
+
+def fc_scale_strategy_live(
+    price_data: pd.DataFrame,
+    abs_price_data: pd.DataFrame,
+    distance_pct=0.05,
+    retrace_pct=0.05,
+    swing_window=63,
+    sw_lvl=3,
+    regime_threshold=0.5,
+    trail_offset_pct=0.01,
+    r_multiplier=1.5,
+    entry_lvls: t.List[int] = None,
+    highest_peak_lvl: int = 3,
+) -> FcStrategyTables:
+    if entry_lvls is None:
+        entry_lvls = [2]
+
+    peak_table, enhanced_price_data = init_peak_table(
+        price_data=price_data,
+        distance_pct=distance_pct,
+        retrace_pct=retrace_pct,
+        swing_window=swing_window,
+        sw_lvl=sw_lvl,
+    )
+
+    standard_dev = price_data.close.rolling(swing_window).std(ddof=0)
+
+    regime_table, enhanced_price_data = init_regime_table(
+        enhanced_price_data=enhanced_price_data,
+        sw_lvl=sw_lvl,
+        standard_dev=standard_dev,
+        regime_threshold=regime_threshold,
+        peak_table=peak_table
+    )
+
+    return FcStrategyTables(
+        enhanced_price_data,
+        peak_table,
+        regime_table
     )
 
 
