@@ -642,7 +642,6 @@ def fc_scale_strategy(
 
 def fc_scale_strategy_live(
     price_data: pd.DataFrame,
-    abs_price_data: pd.DataFrame,
     distance_pct=0.05,
     retrace_pct=0.05,
     swing_window=63,
@@ -679,6 +678,8 @@ def fc_scale_strategy_live(
         peak_table,
         regime_table
     )
+
+
 
 
 def init_peak_table(
@@ -726,8 +727,9 @@ def init_regime_table(
         stdev=standard_dev,
         threshold=regime_threshold,
     )
-
-    return regime_ranges(data_with_regimes, "rg"), data_with_regimes
+    regime_table = regime_ranges(data_with_regimes, "rg")
+    regime_table['type'] = 'fc'
+    return regime_table, data_with_regimes
 
 
 def init_signal_stop_loss_tables(
