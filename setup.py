@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='blue_bird_pms',
-    version='0.0.0.8',
+    version='0.0.0.9',
     packages=['src'],
     url='',
     license='',
