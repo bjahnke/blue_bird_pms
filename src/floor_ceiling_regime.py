@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 import typing as t
 import numpy as np
 import pandas as pd
-from matplotlib import pyplot as plt
 import pandas_accessors.accessors as pda
 import pandas_accessors.utils as ts
 import regime
@@ -764,19 +763,3 @@ def init_signal_stop_loss_tables(
         r_multiplier=r_multiplier,
     )
 
-
-if __name__ == "__main__":
-    # main()
-    # res = price_data_to_relative_series(rd.Symbol.to_list(), 'SPY', '15m', 58)
-    # latest_data = r_data.iloc[-2]
-    # latest_data = latest_data.sort_values()
-    # r_data.plot()
-    # plt.show()
-    # top_performers = latest_data.iloc[-10:]
-    # bot_performers = latest_data.iloc[:10]
-    # r_data[
-    #     top_performers.index.to_list() +
-    #     bot_performers.index.to_list()
-    # ].plot()
-    # plt.show()
-    print("d")
