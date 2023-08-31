@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pandas_accessors.accessors as pda
 import pandas_accessors.utils as ts
-import regime
+import src.regime as regime
 
 
 def regime_ranges(df, rg_col: str):
