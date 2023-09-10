@@ -5,10 +5,9 @@ from dataclasses import dataclass, field
 import typing as t
 import numpy as np
 import pandas as pd
-from matplotlib import pyplot as plt
 import pandas_accessors.accessors as pda
 import pandas_accessors.utils as ts
-import regime
+import src.regime as regime
 
 
 def regime_ranges(df, rg_col: str):
@@ -579,9 +578,9 @@ class FcStrategyTables:
     enhanced_price_data: pd.DataFrame
     peak_table: pd.DataFrame
     regime_table: pd.DataFrame
-    valid_entries: pd.DataFrame
-    stop_loss_series: pd.Series
-    french_stop: pd.DataFrame
+    valid_entries: pd.DataFrame = field(default=None)
+    stop_loss_series: pd.Series = field(default=None)
+    french_stop: pd.DataFrame = field(default=None)
     stats_history: pd.DataFrame = field(init=False)
 
 
@@ -695,6 +694,48 @@ def orders_fc_scale_strategy(
     )
 
 
+def fc_scale_strategy_live(
+    price_data: pd.DataFrame,
+    distance_pct=0.05,
+    retrace_pct=0.05,
+    swing_window=63,
+    sw_lvl=3,
+    regime_threshold=0.5,
+    trail_offset_pct=0.01,
+    r_multiplier=1.5,
+    entry_lvls: t.List[int] = None,
+    highest_peak_lvl: int = 3,
+) -> FcStrategyTables:
+    if entry_lvls is None:
+        entry_lvls = [2]
+
+    peak_table, enhanced_price_data = init_peak_table(
+        price_data=price_data,
+        distance_pct=distance_pct,
+        retrace_pct=retrace_pct,
+        swing_window=swing_window,
+        sw_lvl=sw_lvl,
+    )
+
+    standard_dev = price_data.close.rolling(swing_window).std(ddof=0)
+
+    regime_table, enhanced_price_data = init_regime_table(
+        enhanced_price_data=enhanced_price_data,
+        sw_lvl=sw_lvl,
+        standard_dev=standard_dev,
+        regime_threshold=regime_threshold,
+        peak_table=peak_table
+    )
+
+    return FcStrategyTables(
+        enhanced_price_data,
+        peak_table,
+        regime_table
+    )
+
+
+
+
 def init_peak_table(
     price_data: pd.DataFrame, distance_pct, retrace_pct, swing_window, sw_lvl
 ):
@@ -740,8 +781,9 @@ def init_regime_table(
         stdev=standard_dev,
         threshold=regime_threshold,
     )
-
-    return regime_ranges(data_with_regimes, "rg"), data_with_regimes
+    regime_table = regime_ranges(data_with_regimes, "rg")
+    regime_table['type'] = 'fc'
+    return regime_table, data_with_regimes
 
 
 def init_signal_stop_loss_tables(
@@ -776,19 +818,3 @@ def init_signal_stop_loss_tables(
         r_multiplier=r_multiplier,
     )
 
-
-if __name__ == "__main__":
-    # main()
-    # res = price_data_to_relative_series(rd.Symbol.to_list(), 'SPY', '15m', 58)
-    # latest_data = r_data.iloc[-2]
-    # latest_data = latest_data.sort_values()
-    # r_data.plot()
-    # plt.show()
-    # top_performers = latest_data.iloc[-10:]
-    # bot_performers = latest_data.iloc[:10]
-    # r_data[
-    #     top_performers.index.to_list() +
-    #     bot_performers.index.to_list()
-    # ].plot()
-    # plt.show()
-    print("d")

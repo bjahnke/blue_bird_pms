@@ -2,8 +2,8 @@ from setuptools import setup
 
 setup(
     name='blue_bird_pms',
-    version='0.0.0.6',
-    packages=['src'],
+    version='0.0.2.2',
+    packages=['src/floor_ceiling_regime', 'src/regime'],
     url='',
     license='',
     author='bjahn',
@@ -14,6 +14,5 @@ setup(
         'pandas',
         'scipy',
         'pandas_accessors @ git+https://github.com/bjahnke/pandas_accessors.git#egg=pandas_accessors',
-        'regime @ git+https://github.com/bjahnke/regime.git#egg=regime',
     ]
 )
