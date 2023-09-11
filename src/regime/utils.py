@@ -1277,8 +1277,6 @@ def retest_swing(
                 'lvl': base_swing['lvl'],
                 'st_px': price_data.loc[extreme_price_idx, 'close'],
                 'en_px': breach_price,
-                'symbol': retest_swing.symbol,
-                'is_relative': retest_swing.is_relative
             })
         return swing_detected
 
