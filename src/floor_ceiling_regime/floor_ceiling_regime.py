@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 import pandas_accessors.accessors as pda
 import pandas_accessors.utils as ts
+
+import src.regime
 import src.regime as regime
 
 
@@ -650,6 +652,7 @@ def fc_scale_strategy_live(
     r_multiplier=1.5,
     entry_lvls: t.List[int] = None,
     highest_peak_lvl: int = 3,
+    find_retest_swing: bool = True,
 ) -> FcStrategyTables:
     if entry_lvls is None:
         entry_lvls = [2]
@@ -661,6 +664,22 @@ def fc_scale_strategy_live(
         swing_window=swing_window,
         sw_lvl=sw_lvl,
     )
+
+    if find_retest_swing:
+        last_peak = peak_table.loc[peak_table.lvl == 3].iloc[-1]
+        retest_swing = src.regime.retest_from_latest_base_swing(
+            swings=peak_table,
+            price_data=price_data,
+            sign_filter=last_peak['type'],
+            retest_swing_lvl=1,
+            base_swing_lvl=3,
+        )
+        if retest_swing is not None:
+            retest_swing = pd.DataFrame(retest_swing).transpose()
+            peak_table = pd.concat([peak_table, retest_swing], ignore_index=True)
+            swing_type = 'lo' if retest_swing['type'] == 1 else 'hi'
+            swing_col = f'{swing_type}{retest_swing.lvl}'
+            enhanced_price_data.at[retest_swing.start, swing_col] = retest_swing.st_px
 
     standard_dev = price_data.close.rolling(swing_window).std(ddof=0)
 
