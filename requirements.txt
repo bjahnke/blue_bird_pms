@@ -1,1 +1,9 @@
 setuptools
+pandas
+numpy
+SQLAlchemy
+python-dotenv
+psycopg2-binary
+pytest
+scipy
+git+https://github.com/bjahnke/pandas_accessors.git#egg=pandas_accessors

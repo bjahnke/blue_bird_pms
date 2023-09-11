@@ -9,9 +9,7 @@ import pandas as pd
 import typing
 
 import typing as t
-import pandas_accessors.accessors as pda
-from abc import ABC, abstractmethod
-from scipy.signal import find_peaks
+from abc import abstractmethod
 
 
 class NotEnoughDataError(Exception):
@@ -1294,12 +1292,12 @@ def retest_from_latest_base_swing(
 ):
     """
     Find the latest base swing and then find the latest retest swing after that base swing
-    :param swings:
-    :param price_data:
-    :param sign_filter:
-    :param retest_swing_lvl:
-    :param base_swing_lvl:
-    :return:
+    :param swings: all swings for a given symbol,
+    :param price_data: price data for a given symbol
+    :param sign_filter: filter swings by sign
+    :param retest_swing_lvl: the swing level of the retest swing
+    :param base_swing_lvl: the swing level of the base swing
+    :return: a new swing row where retest criteria is met
     """
     assert retest_swing_lvl < base_swing_lvl, 'retest_swing_lvl must be less than base_swing_lvl'
     # get the latest base swing
@@ -1345,7 +1343,7 @@ def find_all_retest_swing(
     ].copy()
     # sort swings by start
     retest_swings = retest_swings.sort_values(by='start').reset_index(drop=True)
-    # get cummax of st_px if sign_filter == 1, else cummin
+    # filter out lower swing lows or higher swing highs
     extreme_price = getattr(retest_swings.st_px, 'cummax' if sign_filter == 1 else 'cummin')()
     retest_swings = retest_swings.loc[retest_swings.st_px == extreme_price].reset_index(drop=True)
     # for each retest swing, get the price segment from the base swing end to the retest swing end
@@ -1359,15 +1357,16 @@ def find_all_retest_swing(
             # to find genuine retest swings
             next_retest_idx = retest_swings.loc[idx + 1, 'start']
         except KeyError:
+            # or boundary is end of price data
             next_retest_idx = len(price_data)
-        finally:
-            price_boundary_idx = getattr(
-                price_data.loc[data.start:next_retest_idx, 'close'],
-                'idxmin' if sign_filter == 1 else 'idxmax'
-            )()
-        price_segment = price_data.loc[:price_boundary_idx].copy()
+
+        price_boundary_idx = getattr(
+            price_data.loc[data.start:next_retest_idx, 'close'],
+            'idxmin' if sign_filter == 1 else 'idxmax'
+        )()
+        price_segment = price_data.loc[base_swing.start:price_boundary_idx].copy()
         discovered_swing = retest_swing(
-            swings=swings,
+            swings=retest_swings,
             base_swing=base_swing,
             price_data=price_segment,
             sign_filter=sign_filter,
