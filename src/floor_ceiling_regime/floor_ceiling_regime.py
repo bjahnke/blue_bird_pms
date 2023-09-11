@@ -675,8 +675,9 @@ def fc_scale_strategy_live(
             base_swing_lvl=3,
         )
         if retest_swing is not None:
-            retest_swing = pd.DataFrame(retest_swing).transpose()
-            peak_table = pd.concat([peak_table, retest_swing], ignore_index=True)
+            retest_swing_df = pd.DataFrame(retest_swing).transpose()
+            peak_table = pd.concat([peak_table, retest_swing_df], ignore_index=True)
+
             swing_type = 'lo' if retest_swing['type'] == 1 else 'hi'
             swing_col = f'{swing_type}{retest_swing.lvl}'
             enhanced_price_data.at[retest_swing.start, swing_col] = retest_swing.st_px
