@@ -1284,7 +1284,6 @@ def retest_swing(
 def retest_from_latest_base_swing(
         swings: pd.DataFrame,
         price_data: pd.DataFrame,
-        sign_filter: t.Literal[1, -1],
         retest_swing_lvl: t.Literal[1, 2],
         base_swing_lvl: t.Literal[2, 3],
 ):
@@ -1299,18 +1298,16 @@ def retest_from_latest_base_swing(
     """
     assert retest_swing_lvl < base_swing_lvl, 'retest_swing_lvl must be less than base_swing_lvl'
     # get the latest base swing
-    base_swings = swings.loc[
-        (swings['lvl'] == base_swing_lvl) &
-        (swings['type'] == sign_filter)
-    ]
+    base_swings = swings.loc[(swings['lvl'] == base_swing_lvl)]
     discover_swing = None
     if not base_swings.empty:
-        base_swing = base_swings.iloc[-1]
+        # get the last swing from base_swings, sorted by start date
+        base_swing = base_swings.sort_values('start').iloc[-1]
         discover_swing = retest_swing(
             swings=swings,
             base_swing=base_swing,
             price_data=price_data,
-            sign_filter=sign_filter,
+            sign_filter=base_swing['type'],
             retest_swing_lvl=retest_swing_lvl
         )
     return discover_swing
