@@ -666,11 +666,9 @@ def fc_scale_strategy_live(
     )
 
     if find_retest_swing:
-        last_peak = peak_table.loc[peak_table.lvl == 3].iloc[-1]
         retest_swing = src.regime.retest_from_latest_base_swing(
             swings=peak_table,
             price_data=price_data,
-            sign_filter=last_peak['type'],
             retest_swing_lvl=1,
             base_swing_lvl=3,
         )
