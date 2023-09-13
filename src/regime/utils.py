@@ -1254,9 +1254,9 @@ def retest_swing(
         (sign_swings['start'] > extreme_price_idx)
     ].copy()
     if not retest_swings.empty:
-        # select the row in retest_swings with the highest en_px if sign_filter == 1, else the lowest
+        # select the row in retest_swings with the highest st_px if sign_filter == 1, else the lowest
         retest_swing = retest_swings.loc[
-            retest_swings['en_px'].idxmax() if sign_filter == 1 else retest_swings['en_px'].idxmin()
+            retest_swings['st_px'].idxmax() if sign_filter == 1 else retest_swings['st_px'].idxmin()
         ]
         retest_price_segment = retest_price_segment.loc[retest_swing['end']:]
         # get the close idx that breaches the swing low or swing high, if ever
@@ -1264,7 +1264,7 @@ def retest_swing(
             retest_price_segment,
             'cummin' if sign_filter == 1 else 'cummax'
         )()
-        breach_test = np.sign((retest_swing.en_px - test_values) * sign_filter) == 1
+        breach_test = np.sign((retest_swing.st_px - test_values) * sign_filter) == 1
         swing_detected = None
         if breach_test.any():
             breach_data = test_values.loc[breach_test]

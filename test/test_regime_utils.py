@@ -46,9 +46,9 @@ def test_retest_from_latest_base_swing():
         peak_table,
         stock_table,
         regime_table.rg.iloc[-1],
-        retest_swing_lvl=1,
         base_swing_lvl=3
     )
+    assert result is not None
 
 
 def test_find_all_retest_swing():
@@ -62,7 +62,6 @@ def test_find_all_retest_swing():
         peak_table,
         stock_table,
         regime_table.rg.iloc[-1],
-        retest_swing_lvl=retest_swing_lvl,
         base_swing_lvl=base_swing_lvl
     )
 
