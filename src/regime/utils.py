@@ -163,10 +163,6 @@ class AbcSwingParams:
             price_query = self.peaks == self.extreme_levels.loc[peak_discovery_date]
             peak_date = self.peaks.loc[date_query & price_query].index[-1]
 
-        # when average price is used...
-        # date_query = px.index <= peak_discovery_date
-        # price_query = px.avg_px == extremes.loc[peak_discovery_date]
-        # peak_date = px.loc[date_query & price_query].iloc[-1].name
         return peak_date
 
     def get_next_peak_data(self, close_price, prev_swing_price):
@@ -622,8 +618,7 @@ def init_swings(
     :param lvl_limit:
     :return:
     """
-    px = df[['close', 'high', 'low']].copy()
-    px['avg_px'] = df[['high', 'low', 'close']].mean(axis=1).reset_index(drop=True)
+    px = df[['close']].copy()
 
     lvl_limit = 4
     hi_cols = [f'hi{i}' for i in range(1, lvl_limit + 1)]

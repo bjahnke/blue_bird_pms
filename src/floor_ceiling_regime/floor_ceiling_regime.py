@@ -334,7 +334,7 @@ def process_signal_data(
     """
     # sourcery skip: merge-duplicate-blocks, remove-redundant-if
 
-    atr = regime.average_true_range(r_price_data, 14)
+    atr = regime.average_true_range(r_price_data, 14, _h='close', _l='close', _c='close')
 
     trail_map = {
         1: ts.TrailStop(
