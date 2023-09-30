@@ -1269,7 +1269,7 @@ def retest_swing(
                 'start': extreme_price_idx,
                 'end': breach_idx,
                 'type': -sign_filter,
-                'lvl': base_swing['lvl'],
+                'lvl': int(base_swing['lvl']),
                 'st_px': price_data.loc[extreme_price_idx, 'close'],
                 'en_px': breach_price,
             })
