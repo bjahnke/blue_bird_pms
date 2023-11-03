@@ -697,18 +697,12 @@ def fc_scale_strategy_live(
     )
 
 
-
-
 def init_peak_table(
     price_data: pd.DataFrame, distance_pct, retrace_pct, swing_window, sw_lvl
 ):
     """initialization of peak table bundled together"""
     swings, peak_table = regime.init_swings(
         df=price_data,
-        dist_pct=distance_pct,
-        retrace_pct=retrace_pct,
-        n_num=swing_window,
-        lvl=sw_lvl,
     )
 
     # hi_peak_table = full_peak_lag(swings, ["hi1", "hi2", "hi3"])
