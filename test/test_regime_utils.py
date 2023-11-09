@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import create_engine, text
 import typing as t
 import numpy as np
+import os 
 
 symbol_query = 'SELECT * FROM {table} where {table}.symbol = \'{symbol}\''
 
@@ -81,40 +82,63 @@ def test_find_all_retest_swing():
         assert latest_swing.st_px in result.st_px.values
         assert latest_swing.en_px in result.en_px.values
 
+NAN_1 = [np.nan]
+NAN_2 = NAN_1 * 3
+NAN_3 = NAN_1 * 7
+
+class SwMocks:
+    """
+    Test data for swing tests
+    """
+    
+    class Price:
+        SW_HI_1 = [1,2,1]
+        SW_HI_2 = SW_HI_1 + [3] + SW_HI_1
+        SW_HI_3 = SW_HI_2 + [4] + SW_HI_2
+        SW_LO_1 = [4,3,4]
+        SW_LO_2 = SW_LO_1 + [2] + SW_LO_1
+        SW_LO_3 = SW_LO_2 + [1] + SW_LO_2
+
+    class Peak:
+        SW_HI_1 = NAN_1 + [1] + NAN_1
+        SW_HI_2 = NAN_2 + [3] + NAN_2
+        SW_HI_3 = NAN_3 + [4] + NAN_3
+        SW_LO_1 = NAN_1 + [3] + NAN_1
+        SW_LO_2 = NAN_2 + [2] + NAN_2
+        SW_LO_3 = NAN_3 + [1] + NAN_3
+        
+
 
 @pytest.fixture
 def test_data():
     # Create a DataFrame with some test data
     data = pd.DataFrame({
-        'high': [1, 2, 3, 2, 1, 4, 5, 6, 5, 4, 3, 2, 1, 0, 1],
-        'low': [1, 0, 1, 2, 3, 2, 1, 0, 1, 2, 3, 4, 5, 6, 7],
-        'close': [1, 1, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 3, 3, 4]
+        'close': SwMocks.Price.SW_HI_3 + SwMocks.Price.SW_LO_3,
     })
     return data
 
-def test_historical_swings_values(test_data):
+
+def test_init_compare():
+    # Create a DataFrame with some test data
+    swings = pd.Series([1, 2, 3, 3, 2, 1, 2, 3, 2, 1])
+
     # Call the function with the test data
-    result = utils.historical_swings(test_data)
+    result = utils.init_compare(swings, True)
 
-    # Check the values in the new columns
-    assert (result['hi1'] == [1, 2, 3, np.nan, np.nan, 4, 5, 6, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan]).all()
-    assert (result['lo1'] == [1, np.nan, 1, 2, 3, np.nan, 1, np.nan, 1, 2, 3, 4, 5, 6, 7]).all()
-    assert (result['hi2'] == [np.nan, np.nan, np.nan, np.nan, np.nan, 4, 5, 6, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan]).all()
-    assert (result['lo2'] == [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, 1, np.nan, 1, 2, 3, 4, 5, 6, 7]).all()
-    assert (result['hi3'] == [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, 1]).all()
-    assert (result['lo3'] == [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, 1]).all()
+    # the duplicate three should be ignored
+    # Check the values in the new DataFrame
+    assert (result['prior'] == [1, 2, 3, 2, 1, 2, 3]).all()
+    assert (result['sw'] == [2, 3, 2, 1, 2, 3, 2]).all()
+    assert (result['next'] == [3, 2, 1, 2, 3, 2, 1]).all()
 
 
-def test_find_swings_with_last_known_peak_data(test_data):
-    # Create a DataFrame with the last known peak data
-    last_known_peak_data = pd.DataFrame({
-        'type': [-1],
-        'lvl': [1],
-        'start': [2]
-    })
+def test_find_swings():
+    # Create a DataFrame with some test data
+    swings = pd.Series([1, 2, 3, 2, 1, 2, 3, 2, 1])
 
-    # Call the function with the test data and the last known peak data
-    result = utils.find_swings(test_data, 1, -1, last_known_peak_data)
+    # Call the function with the test data
+    result = utils.find_swings(swings, 1, -1)
 
-    # Check the values in the result
-    assert (result == [np.nan, np.nan, 3, 2, 1]).all()
+    # Check the values in the new DataFrame
+    assert (result == [3, 3]).all()
+    assert (result.index == [2, 6]).all()

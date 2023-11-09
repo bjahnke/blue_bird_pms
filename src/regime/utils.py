@@ -165,7 +165,7 @@ def init_compare(swings: pd.Series, skip_duplicate: bool) -> pd.DataFrame:
     """
     compare = pd.DataFrame(columns=['prior', 'sw', 'next'])
     compare.next = swings.shift(-1)
-    if lvl == 1:
+    if skip_duplicate == 1:
         swings = swings.loc[swings.shift(-1) != swings]
     compare.prior = swings.shift(1)
     compare.sw = swings
@@ -186,6 +186,14 @@ def historical_swings(data: pd.DataFrame, _h: str = 'high', _l: str = 'low', _c:
 
     This function calculates historical swings at different levels in the provided financial data and adds them as new columns to the DataFrame. The level of the swings is controlled by the `lvl_limit` parameter.
     """
+    # return empty dataframe if no data or columns not in data
+    if data.empty or not all([col in data.columns for col in [_h, _l, _c]]):
+        empty_data = data.copy()
+        for i in range(1, lvl_limit + 1):
+            empty_data[f'hi{i}'] = np.nan
+            empty_data[f'lo{i}'] = np.nan
+        return empty_data
+    
     reduction = data[list({_h, _l, _c})].copy()
     highs = reduction[_h]
     lows = reduction[_l]
@@ -196,8 +204,8 @@ def historical_swings(data: pd.DataFrame, _h: str = 'high', _l: str = 'low', _c:
         hi_lvl_col = 'hi' + str(n)
         lo_lvl_col = 'lo' + str(n)
 
-        highs = find_swings(highs, n, -1, last_known_peak_data)
-        lows = find_swings(lows, n, 1, last_known_peak_data)
+        highs = find_swings(highs, n, -1, last_known_peak_data).astype(dtype='float64')
+        lows = find_swings(lows, n, 1, last_known_peak_data).astype(dtype='float64')
 
         # Populate main dataframe
         data[hi_lvl_col] = highs
@@ -221,27 +229,27 @@ def find_swings(swings: pd.Series, lvl: int, peak_type: int, last_known_peak_dat
 
     This function finds the swings in the provided financial data that are greater than their prior and next swings. If the `last_known_peak_data` parameter is provided, it only considers data after the last known peak. If multiple peaks are at the same price level, it only considers the first one.
     """
-    last_swing = 0
+    
     if last_known_peak_data is not None:
+        last_swing = -1
         last_swing = last_known_peak_data.loc[
             (last_known_peak_data.type == peak_type) & (last_known_peak_data.lvl == lvl),
             'start'    
         ].max()
-        last_swing = 0 if pd.isnull(last_swing) else last_swing
-    
-    swings = swings.loc[swings.index > last_swing]
+        last_swing = -1 if pd.isnull(last_swing) else last_swing
+        swings = swings.loc[swings.index > last_swing]
 
     # setting level to 1 is not a mistake, if peaks are same price level, only consider the first one
-    swings_compare = init_compare(swings, True)
+    swings_compare = init_compare(swings * peak_type, True)
     swings = swings_compare.loc[
-        (swings_compare.sw > swings_compare.prior) &
-        (swings_compare.sw > swings_compare.next),
+        (swings_compare.sw < swings_compare.prior) &
+        (swings_compare.sw < swings_compare.next),
         'sw'
     ]
-    return swings
+    return swings * peak_type
 
 
-def full_peak_lag(data, asc_peaks) -> pd.DataFrame:
+def full_peak_lag(data: pd.DataFrame, asc_peaks: typing.List[str]) -> pd.DataFrame:
     """
     calculates distance from highest level peak to the time it was discovered
     value is not nan if peak, does not matter if swing low or swing high
@@ -252,23 +260,41 @@ def full_peak_lag(data, asc_peaks) -> pd.DataFrame:
     # desire lag for all peak levels greater than 1,
     # so if [hi1, hi2, hi3] given,
     # group by [[hi1, hi2], [hi1, hi2, hi3]] to get lag for level 2 and level 3
+    # if asc_peaks not in data.columns:
+    if not all([peak in data.columns for peak in asc_peaks]):
+        return pd.DataFrame({
+            'start': [],
+            'end': [],
+            'type': [],
+            'lvl': [],
+            'st_px': [],
+            'en_px': [],
+        })
     lowest_lvl = asc_peaks[0]
     start_peaks = data.loc[data[lowest_lvl].notna(), lowest_lvl]
     sw_type = 1 if 'lo' in lowest_lvl else -1
     lvl = 1
+    next_indexes = (
+        data.reset_index()
+        .set_index(data.index, drop=False)['index']
+        .shift(-1)
+        .dropna()
+        .astype('int64')[start_peaks.index]
+        )
     lowest_lvl_peaks = pd.DataFrame(
         data={
             'start': start_peaks.index,
-            'end': start_peaks.index + 1,
+            'end': next_indexes,
             'type': sw_type,
             'lvl': lvl,
             'st_px': start_peaks.values,
-            'en_px': data.loc[start_peaks.index + 1, 'close'].values
+            'en_px': data.loc[next_indexes, 'close'].values
         }
     )
 
     peak_tables = [lowest_lvl_peaks]
     lower_level_peaks = lowest_lvl_peaks[['start', 'end']].copy()
+    # convert each peak column to rows
     for peak_col in asc_peaks[1:]:
         lvl += 1
         lower_level_peaks.end = lower_level_peaks.end.shift(-1)
@@ -335,21 +361,22 @@ def init_swings(
     :param last_known_peak_data:
     :return:
     """
+    # validate df columns
     px = df[['close']].copy()
 
     lvl_limit = 4
-    hi_cols = [f'hi{i}' for i in range(1, lvl_limit + 1)]
-    lo_cols = [f'lo{i}' for i in range(1, lvl_limit + 1)]
+    hi_cols = [f'hi{i}' for i in range(1, lvl_limit)]
+    lo_cols = [f'lo{i}' for i in range(1, lvl_limit)]
 
-    lvl1_peaks = historical_swings(px, lvl_limit=3, _h='close', _l='close', last_known_peak_data=last_known_peak_data).reset_index(drop=True)
-    if len(lvl1_peaks.hi3.dropna()) == 0 or len(lvl1_peaks.lo3.dropna()) == 0:
-        raise NotEnoughDataError
+    lvl1_peaks = historical_swings(px, lvl_limit=3, _h='close', _l='close', last_known_peak_data=last_known_peak_data)
 
     hi_peaks = full_peak_lag(lvl1_peaks, hi_cols)
     lo_peaks = full_peak_lag(lvl1_peaks, lo_cols)
     peak_table = pd.concat([hi_peaks, lo_peaks]).sort_values(by='end', ascending=True).reset_index(drop=True)
 
     return px, peak_table
+
+def alternate_peak_search(px, hi_sw_params, lo_sw_params, initial_price):
     """
     alternate looking for swing hi/lo starting with whichever swing is found sooner
     :param px:
@@ -505,18 +532,129 @@ def normalize_none_values(values):
     return _axis
 
 
+class FloorCeilingFinder:
+    def __init__(
+            self, 
+            data: pd.DataFrame,
+            stdev,
+            threshold,
+            extreme_func_name: t.Literal['max', 'min'],
+            sw_type: t.Literal[1, -1],
+            cum_func: t.Literal['cummin', 'cummax'],
+            fc_type: t.Literal[1, -1],
+            retest: t.Literal['hi1', 'lo1'],
+            ):
+        self._data = data
+        self._stdev = stdev
+        self._threshold = threshold
+        self._close = 'close'
+        self._extreme_func = extreme_func_name
+        self._sw_type = sw_type
+        self._cum_func = cum_func
+        self._fc_type = fc_type
+        self._retest = retest
+
+    @classmethod
+    def floor(cls, data: pd.DataFrame, stdev, threshold):
+        return cls(data, stdev, threshold, 'min', 1, 'cummin', -1, 'hi1')
+    
+    @classmethod
+    def ceiling(cls, data: pd.DataFrame, stdev, threshold):
+        return cls(data, stdev, threshold, 'max', -1, 'cummax', 1, 'lo1')
+    
+    @classmethod
+    def floor_ceiling(cls, data: pd.DataFrame, stdev, threshold):
+        return cls.floor(data, stdev, threshold), cls.ceiling(data, stdev, threshold)
+    
+    def find(self, fc_ix, latest_swing):
+        return find_fc(
+            self._data,
+            fc_ix,
+            self._close,
+            self._extreme_func,
+            self._stdev,
+            self._sw_type,
+            self._threshold,
+            latest_swing
+        )
+    
+    def found(self, rg_ch_data, latest_hi_lo_sw_discovery):
+        try:
+            res, df = fc_found(
+                df=self._data,
+                latest_hi_lo_sw_discovery=latest_hi_lo_sw_discovery,
+                rg_data=rg_ch_data,
+                close_col=self._close,
+                cum_func=self._cum_func,
+                fc_type=self._fc_type,
+                retest=self._retest,
+            )
+        except ValueError:
+            res = False
+
+        
+
+
+        return fc_found(
+            df=self._data,
+            latest_hi_lo_sw_discovery=latest_hi_lo_sw_discovery,
+            rg_data=rg_ch_data,
+            close_col=self._close,
+            cum_func=self._cum_func,
+            fc_type=self._fc_type,
+            retest=self._retest,
+        )
+    
+    def current(self, fc_data, sw_data):
+        return fc_data.loc[
+            (fc_data.type == self._sw_type) &
+            (fc_data.fc_date <= sw_data.start)
+        ].iloc[-1]
+    
+
+        
+    
+
+class BreakDownOutFinder:
+    def __init__(self, data, extreme_idx_f, extreme_val_f, retest):
+        self._data = data
+        self._extreme_idx_f = extreme_idx_f
+        self._extreme_val_f = extreme_val_f
+        self._retest = retest
+
+    @classmethod
+    def breakdown(cls, data: pd.DataFrame):
+        return cls(data, 'idxmin', 'cummin', 'hi1')
+    
+    @classmethod
+    def breakout(cls, data: pd.DataFrame):
+        return cls(data, 'idxmax', 'cummax', 'lo1')
+    
+    @classmethod
+    def breakdown_breakout(cls, data: pd.DataFrame):
+        return cls.breakdown(data), cls.breakout(data)
+    
+    def __call__(self, rg_ch_data, latest_sw_discovery):
+        return break_pullback(
+            self._data,
+            rg_ch_data,
+            latest_sw_discovery,
+            self._extreme_idx_f,
+            self._extreme_val_f,
+            self._retest,
+        )
+
+
 def regime_floor_ceiling(
         df: pd.DataFrame,
-        flr,
-        clg,
-        rg,
-        rg_ch,
         stdev,
         threshold,
         peak_table,
         sw_lvl: int = 3,
-        _h: str = "high",
-        _l: str = "low",
+        flr="flr",
+        clg='clg',
+        rg='rg',
+        rg_ch='rg_ch',
         _c: str = "close",
 ):
 
@@ -531,47 +669,8 @@ def regime_floor_ceiling(
         data={'hi': _sw_hi_peak_table.start, 'lo': _sw_lo_peak_table.start}
     ).ffill().bfill().reset_index(drop=True)
 
-
-    fc_find_floor = hof_find_fc(
-        df=df,
-        price_col='close',
-        extreme_func='min',
-        stdev=stdev,
-        sw_type=1,
-        threshold=threshold
-    )
-    fc_find_ceiling = hof_find_fc(
-        df=df,
-        price_col='close',
-        extreme_func='max',
-        stdev=stdev,
-        sw_type=-1,
-        threshold=threshold
-    )
-    fc_floor_found = hof_fc_found(
-        df=df,
-        cum_func='cummin',
-        fc_type=-1,
-        retest='hi1'
-    )
-    fc_ceiling_found = hof_fc_found(
-        df=df,
-        cum_func='cummax',
-        fc_type=1,
-        retest='lo1'
-    )
-    calc_breakdown = hof_break_pullback(
-        df=df,
-        extreme_idx_f='idxmin',
-        extreme_val_f='cummin',
-        retest='hi1'
-    )
-    calc_breakout = hof_break_pullback(
-        df=df,
-        extreme_idx_f='idxmax',
-        extreme_val_f='cummax',
-        retest='lo1'
-    )
+    floor, ceiling = FloorCeilingFinder.floor_ceiling(df, stdev, threshold)
+    calc_breakdown, calc_breakout = BreakDownOutFinder.breakdown_breakout(df)
 
     # Range initialisation to 1st swing
     fc_data_cols = ['test', 'fc_val', 'fc_date', 'rg_ch_date', 'rg_ch_val', 'type']
@@ -608,11 +707,8 @@ def regime_floor_ceiling(
         # CLASSIC CEILING DISCOVERY
         if ceiling_found is False:
             # Classic ceiling test
-            current_floor = fc_data.loc[
-                (fc_data.type == 1) &
-                (fc_data.fc_date <= sw_hi_data.start)
-            ].iloc[-1]
-            res = fc_find_ceiling(fc_ix=current_floor.fc_date, latest_swing=sw_hi_data)
+            current_floor = floor.current(fc_data, sw_hi_data)
+            res = ceiling.find(fc_ix=current_floor.fc_date, latest_swing=sw_hi_data)
             if len(res) > 0:
                 # Boolean flags reset
                 ceiling_found = True
@@ -624,7 +720,7 @@ def regime_floor_ceiling(
         # 1. if ceiling found, calculate regime since rg_ch_ix using close.cummin
         elif ceiling_found is True:
             try:
-                res, df = fc_ceiling_found(
+                res, df = ceiling.found(
                     rg_ch_data=fc_data.iloc[-1],
                     latest_hi_lo_sw_discovery=latest_swing_data.end
                 )
@@ -646,11 +742,8 @@ def regime_floor_ceiling(
         # CLASSIC FLOOR DISCOVERY
         if floor_found is False:
             # Classic floor test
-            current_ceiling = fc_data.loc[
-                (fc_data.type == -1) &
-                (fc_data.fc_date <= sw_lo_data.start)
-            ].iloc[-1]
-            res = fc_find_floor(fc_ix=current_ceiling.fc_date, latest_swing=sw_lo_data)
+            current_ceiling = ceiling.current(fc_data, sw_lo_data)
+            res = floor.find(fc_ix=current_ceiling.fc_date, latest_swing=sw_lo_data)
             if len(res) > 0:
                 # Boolean flags reset
                 floor_found = True
@@ -661,7 +754,7 @@ def regime_floor_ceiling(
         # 1. if floor found, calculate regime since rg_ch_ix using close.cummin
         elif floor_found is True:
             try:
-                res, df = fc_floor_found(
+                res, df = floor.found(
                     rg_ch_data=fc_data.iloc[-1],
                     latest_hi_lo_sw_discovery=latest_swing_data.end
                 )
@@ -682,19 +775,6 @@ def regime_floor_ceiling(
     #             breakdown = False
     #             breakout = True
 
-        # try:
-        #     _fc_data = fc_data.iloc[2:]
-        #     df[rg_ch] = np.nan
-        #     floors_data = _fc_data.loc[_fc_data.type == 1]
-        #     ceilings_data = _fc_data.loc[_fc_data.type == -1]
-        #     df.loc[floors_data.fc_date, flr] = floors_data.fc_val.values
-        #     df.loc[ceilings_data.fc_date, clg] = ceilings_data.fc_val.values
-        #     df.loc[_fc_data.rg_ch_date, rg_ch] = _fc_data.rg_ch_val.values
-        #     df[rg_ch] = df[rg_ch].fillna(method="ffill")
-        #     df[['hi3', 'lo3', flr, clg, rg_ch, 'close', 'rg']].plot(secondary_y='rg', style=['r.', 'g.', 'k^', 'kv'])
-        #     pass
-        # except:
-        #     pass
 
     # no data excluding the initialized floor/ceiling
     if len(fc_data.iloc[2:]) == 0:
@@ -726,7 +806,7 @@ def regime_floor_ceiling(
         )
     df[rg] = df[rg].ffill()
     #     #     df[rg+'_no_fill'] = df[rg]
-    return df
+    return df, fc_data
 
 
 def find_fc(
@@ -782,12 +862,6 @@ def find_fc(
     return res
 
 
-def hof_find_fc(df, price_col, extreme_func, stdev, sw_type, threshold):
-    def _fc_found(fc_ix, latest_swing):
-        return find_fc(df, fc_ix, price_col, extreme_func, stdev, sw_type, threshold, latest_swing)
-    return _fc_found
-
-
 def assign_retest_vals(c_data, retest_col, close_col):
     rt = c_data.copy()
     rt.loc[rt[retest_col].isna(), close_col] = np.nan
@@ -798,6 +872,18 @@ def assign_retest_vals(c_data, retest_col, close_col):
 
 
 def normal_assign(c_data, retest_col, close_col):
+    """
+    Assigns the cumulative maximum or minimum of the `close_col` column of `c_data` to a new column based on the value of
+    `retest_col`.
+
+    Args:
+        c_data (pandas.DataFrame): The DataFrame containing the data to be processed.
+        retest_col (str): The column name used to determine whether to use `cummax` or `cummin`.
+        close_col (str): The column name containing the data to be processed.
+
+    Returns:
+        pandas.Series: A new Series containing the cumulative maximum or minimum of the `close_col` column of `c_data`.
+    """
     _cum_func = 'cummax' if 'lo' in retest_col else 'cummin'
     cd = c_data[close_col].copy()
     return getattr(cd, _cum_func)()
@@ -814,8 +900,20 @@ def fc_found(
         rg_col='rg',
 ):
     """
-    set regime to where the newest swing was DISCOVERED
+    Determines if a retest has occurred and updates the regime column accordingly.
+    Importantly, records where a regime was discovered.
+    Args:
+        df (pandas.DataFrame): The DataFrame containing the price data.
+        latest_hi_lo_sw_discovery (str): The latest date of a high/low/swing discovery.
+        rg_data (pandas.Series): The regime data.
+        cum_func (str): The cumulative function to use.
+        fc_type (int): The type of regime.
+        retest (str): The type of retest.
+        close_col (str, optional): The name of the close column. Defaults to 'close'.
+        rg_col (str, optional): The name of the regime column. Defaults to 'rg'.
 
+    Returns:
+        Tuple[bool, pandas.DataFrame]: A tuple containing a boolean indicating if a retest has occurred and the updated DataFrame.
     """
     # close_data = df.loc[rg_data.rg_ch_date: latest_hi_lo_sw_discovery, close_col]
     # select close prices where retests have occurred
@@ -837,36 +935,6 @@ def fc_found(
         test_break = True
 
     return test_break, df
-
-
-def hof_fc_found(df, cum_func, fc_type, retest, close_col='close', rg_col='rg'):
-    def _fc_found(rg_ch_data, latest_hi_lo_sw_discovery):
-        return fc_found(
-            df=df,
-            latest_hi_lo_sw_discovery=latest_hi_lo_sw_discovery,
-            rg_data=rg_ch_data,
-            cum_func=cum_func,
-            fc_type=fc_type,
-            close_col=close_col,
-            rg_col=rg_col,
-            retest=retest
-        )
-    return _fc_found
-
-
-def hof_break_pullback(df, retest, extreme_idx_f, extreme_val_f):
-    def _break_pullback(rg_ch_data, latest_sw_discovery):
-        return break_pullback(
-            df=df,
-            rg_ch_data=rg_ch_data,
-            latest_hi_lo_sw_discovery=latest_sw_discovery,
-            extreme_idx_func=extreme_idx_f,
-            extreme_val_func=extreme_val_f,
-            retest=retest,
-            rg_col='rg',
-            close_col='close'
-        )
-    return _break_pullback
 
 
 def break_pullback(
@@ -1073,3 +1141,5 @@ def find_all_retest_swing(
     discovered_retest_swings = pd.DataFrame(predicted_swings)
     discovered_retest_swings['lvl'] = base_swing.lvl
     return discovered_retest_swings
+
+

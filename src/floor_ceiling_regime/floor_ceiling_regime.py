@@ -13,6 +13,16 @@ import src.regime as regime
 
 
 def regime_ranges(df, rg_col: str):
+    """
+    Given a DataFrame and a column name, returns a DataFrame with the start and end indices of each regime in the column.
+
+    Args:
+        df (pandas.DataFrame): The DataFrame containing the regime column.
+        rg_col (str): The name of the regime column.
+
+    Returns:
+        pandas.DataFrame: A DataFrame with the start and end indices of each regime in the column.
+    """
     start_col = "start"
     end_col = "end"
     loop_params = [(start_col, df[rg_col].shift(1)), (end_col, df[rg_col].shift(-1))]
@@ -580,6 +590,7 @@ class FcStrategyTables:
     enhanced_price_data: pd.DataFrame
     peak_table: pd.DataFrame
     regime_table: pd.DataFrame
+    floor_ceiling_table: pd.DataFrame
     valid_entries: pd.DataFrame = field(default=None)
     stop_loss_series: pd.Series = field(default=None)
     french_stop: pd.DataFrame = field(default=None)
@@ -647,15 +658,9 @@ def fc_scale_strategy_live(
     retrace_pct=0.05,
     swing_window=63,
     sw_lvl=3,
-    regime_threshold=0.5,
-    trail_offset_pct=0.01,
-    r_multiplier=1.5,
-    entry_lvls: t.List[int] = None,
-    highest_peak_lvl: int = 3,
+    regime_threshold=1.5,
     find_retest_swing: bool = True,
 ) -> FcStrategyTables:
-    if entry_lvls is None:
-        entry_lvls = [2]
 
     peak_table, enhanced_price_data = init_peak_table(
         price_data=price_data,
@@ -682,7 +687,7 @@ def fc_scale_strategy_live(
 
     standard_dev = price_data.close.rolling(swing_window).std(ddof=0)
 
-    regime_table, enhanced_price_data = init_regime_table(
+    regime_table, enhanced_price_data, fc_data = init_regime_table(
         enhanced_price_data=enhanced_price_data,
         sw_lvl=sw_lvl,
         standard_dev=standard_dev,
@@ -693,7 +698,8 @@ def fc_scale_strategy_live(
     return FcStrategyTables(
         enhanced_price_data,
         peak_table,
-        regime_table
+        regime_table,
+        fc_data
     )
 
 
@@ -727,7 +733,7 @@ def init_regime_table(
 ):
     """initialization of regime table bundled together"""
 
-    data_with_regimes = regime.regime_floor_ceiling(
+    data_with_regimes, fc_data = regime.regime_floor_ceiling(
         df=enhanced_price_data,
         peak_table=peak_table,
         sw_lvl=sw_lvl,
@@ -740,7 +746,7 @@ def init_regime_table(
     )
     regime_table = regime_ranges(data_with_regimes, "rg")
     regime_table['type'] = 'fc'
-    return regime_table, data_with_regimes
+    return regime_table, data_with_regimes, fc_data
 
 
 def init_signal_stop_loss_tables(
