@@ -995,6 +995,8 @@ def retest_swing(
     ].copy()
 
     retest_price_segment = price_data.loc[base_swing['end']:, 'close']
+    if retest_price_segment.empty:
+        return None
     # calc cummax/cummin of retest_price_segment
     extreme_price_idx = getattr(retest_price_segment, 'idxmax' if sign_filter == 1 else 'idxmin')()
     # filter for retest swings that occur after extreme_price_idx
