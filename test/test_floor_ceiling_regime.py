@@ -108,4 +108,5 @@ class TestRegimeFloorCeiling:
             peak_table=swings,
         )
         expected = pd.read_pickle('.\\test\\price_regime.pkl')
+        regime = pd.read_pickle('.\\test\\regime.pkl')
         pd.testing.assert_frame_equal(regime_data, expected)

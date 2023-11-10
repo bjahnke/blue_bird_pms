@@ -579,22 +579,6 @@ class FloorCeilingFinder:
         )
     
     def found(self, rg_ch_data, latest_hi_lo_sw_discovery):
-        try:
-            res, df = fc_found(
-                df=self._data,
-                latest_hi_lo_sw_discovery=latest_hi_lo_sw_discovery,
-                rg_data=rg_ch_data,
-                close_col=self._close,
-                cum_func=self._cum_func,
-                fc_type=self._fc_type,
-                retest=self._retest,
-            )
-        except ValueError:
-            res = False
-
-        
-
-
         return fc_found(
             df=self._data,
             latest_hi_lo_sw_discovery=latest_hi_lo_sw_discovery,
@@ -610,9 +594,6 @@ class FloorCeilingFinder:
             (fc_data.type == self._sw_type) &
             (fc_data.fc_date <= sw_data.start)
         ].iloc[-1]
-    
-
-        
     
 
 class BreakDownOutFinder:
@@ -709,7 +690,7 @@ def regime_floor_ceiling(
             # Classic ceiling test
             current_floor = floor.current(fc_data, sw_hi_data)
             res = ceiling.find(fc_ix=current_floor.fc_date, latest_swing=sw_hi_data)
-            if len(res) > 0:
+            if res:
                 # Boolean flags reset
                 ceiling_found = True
                 floor_found = breakdown = breakout = False
@@ -744,7 +725,7 @@ def regime_floor_ceiling(
             # Classic floor test
             current_ceiling = ceiling.current(fc_data, sw_lo_data)
             res = floor.find(fc_ix=current_ceiling.fc_date, latest_swing=sw_lo_data)
-            if len(res) > 0:
+            if res:
                 # Boolean flags reset
                 floor_found = True
                 ceiling_found = breakdown = breakout = False
