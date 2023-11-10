@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='blue_bird_pms',
-    version='0.0.3.1',
+    version='0.0.3.2',
     packages=['src/floor_ceiling_regime', 'src/regime'],
     url='',
     license='',

@@ -707,7 +707,10 @@ def init_peak_table(
     price_data: pd.DataFrame, distance_pct, retrace_pct, swing_window, sw_lvl
 ):
     """initialization of peak table bundled together"""
-    swings, peak_table = regime.init_swings(
+    price_data = price_data.copy()
+    price_data.index = price_data.bar_number
+    price_data.index.name = "index"
+    price_with_swing_data, peak_table = regime.init_swings(
         df=price_data,
     )
 
@@ -721,7 +724,7 @@ def init_peak_table(
     #     else:
     #         raise Exception('Only expect to fill one swing')
 
-    return peak_table, swings
+    return peak_table, price_with_swing_data
 
 
 def init_regime_table(
