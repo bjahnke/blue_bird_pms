@@ -9,7 +9,6 @@ import pandas as pd
 import typing
 
 import typing as t
-from abc import abstractmethod
 
 
 class NotEnoughDataError(Exception):

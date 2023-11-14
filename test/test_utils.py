@@ -2,7 +2,6 @@ import pandas as pd
 import pytest
 import src.regime.utils as utils
 
-
 class TestFindSwings:
     """
     A collection of unit tests for the `find_swings` function in the `utils` module.
@@ -367,4 +366,3 @@ class TestInitSwings:
         # select data rows that have index equal to last peak index
         last_known_peak_data = data.loc[last_peaks.index.tolist()]
         print('l')
-        
