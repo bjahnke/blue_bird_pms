@@ -589,10 +589,13 @@ class FloorCeilingFinder:
         )
     
     def current(self, fc_data, sw_data):
-        return fc_data.loc[
-            (fc_data.type == self._sw_type) &
-            (fc_data.fc_date <= sw_data.start)
-        ].iloc[-1]
+        try:
+            return fc_data.loc[
+                (fc_data.type == self._sw_type) &
+                (fc_data.fc_date <= sw_data.start)
+            ].iloc[-1]
+        except IndexError:
+            return None
     
 
 class BreakDownOutFinder:
@@ -962,7 +965,7 @@ def add_peak_regime_data(_price_data, _regime_data, _peak_data):
 
     for index, row in _peak_data.iterrows():
         peak_lvl = row['lvl']
-        peak_col = f'lo{peak_lvl}' if row['type'] == 1 else f'hi{peak_lvl}'
+        peak_col = f'lo{int(peak_lvl)}' if row['type'] == 1 else f'hi{int(peak_lvl)}'
         _price_data.loc[row.start, peak_col] = row.st_px
         _price_data.loc[row.end, 'd'+peak_col] = row.en_px
 

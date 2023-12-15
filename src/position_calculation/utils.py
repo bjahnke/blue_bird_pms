@@ -12,10 +12,10 @@ class TwoLegTradeEquation:
     """
     F, P, C, S = symbols('F P C S')
     equation = Eq((C - S), F * (P - S))
-    solve_for_F = solve(equation, F)[0].subs
-    solve_for_P = solve(equation, P)[0].subs
-    solve_for_C = solve(equation, C)[0].subs
-    solve_for_S = solve(equation, S)[0].subs
+    solve_for_F = solve(equation, F)[0]
+    solve_for_P = solve(equation, P)[0]
+    solve_for_C = solve(equation, C)[0]
+    solve_for_S = solve(equation, S)[0]
     
     class Solve:
         @classmethod
@@ -25,7 +25,7 @@ class TwoLegTradeEquation:
                 TwoLegTradeEquation.C: cost,
                 TwoLegTradeEquation.P: price,
             }
-            return TwoLegTradeEquation.solve_for_F(values)
+            return TwoLegTradeEquation.solve_for_F.subs(values)
             
         
         @classmethod
@@ -35,7 +35,7 @@ class TwoLegTradeEquation:
                 TwoLegTradeEquation.C: cost,
                 TwoLegTradeEquation.F: fraction,
             }
-            return TwoLegTradeEquation.solve_for_P(values)
+            return TwoLegTradeEquation.solve_for_P.subs(values)
         
         @classmethod
         def stop(cls, cost, price, fraction):
@@ -44,7 +44,7 @@ class TwoLegTradeEquation:
                 TwoLegTradeEquation.C: cost,
                 TwoLegTradeEquation.F: fraction,
             }
-            return TwoLegTradeEquation.solve_for_S(values)
+            return TwoLegTradeEquation.solve_for_S.subs(values)
         
         @classmethod
         def cost(cls, stop, price, fraction):
@@ -53,17 +53,17 @@ class TwoLegTradeEquation:
                 TwoLegTradeEquation.P: price,
                 TwoLegTradeEquation.F: fraction,
             }
-            return TwoLegTradeEquation.solve_for_C(values)
+            return TwoLegTradeEquation.solve_for_C.subs(values)
         
 
 class PositionSize:
     S, C, R, Q = symbols('S C R Q')
     equation = Eq(Q, R /(C - S))
 
-    solve_for_Q = solve(equation, Q)[0].subs
-    solve_for_R = solve(equation, R)[0].subs
-    solve_for_C = solve(equation, C)[0].subs
-    solve_for_S = solve(equation, S)[0].subs
+    solve_for_Q = solve(equation, Q)[0]
+    solve_for_R = solve(equation, R)[0]
+    solve_for_C = solve(equation, C)[0]
+    solve_for_S = solve(equation, S)[0]
 
     class Solve:
         @classmethod
@@ -73,7 +73,7 @@ class PositionSize:
                 PositionSize.C: cost,
                 PositionSize.Q: quantity,
             }
-            return PositionSize.solve_for_R(values)
+            return PositionSize.solve_for_R.subs(values)
 
         @classmethod
         def cost(cls, stop, risk, quantity):
@@ -82,7 +82,7 @@ class PositionSize:
                 PositionSize.R: risk,
                 PositionSize.Q: quantity,
             }
-            return PositionSize.solve_for_C(values)
+            return PositionSize.solve_for_C.subs(values)
 
         @classmethod
         def stop(cls, cost, risk, quantity):
@@ -91,7 +91,7 @@ class PositionSize:
                 PositionSize.R: risk,
                 PositionSize.Q: quantity,
             }
-            return PositionSize.solve_for_S(values)
+            return PositionSize.solve_for_S.subs(values)
 
         @classmethod
         def quantity(cls, stop, cost, risk):
@@ -100,5 +100,5 @@ class PositionSize:
                 PositionSize.C: cost,
                 PositionSize.R: risk,
             }
-            return PositionSize.solve_for_Q(values)
+            return PositionSize.solve_for_Q.subs(values)
     
