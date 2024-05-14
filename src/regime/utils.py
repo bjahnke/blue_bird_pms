@@ -589,6 +589,9 @@ class FloorCeilingFinder:
         )
     
     def current(self, fc_data, sw_data):
+        """
+        find the most recent floor/ceiling data
+        """
         try:
             return fc_data.loc[
                 (fc_data.type == self._sw_type) &
@@ -640,7 +643,7 @@ def regime_floor_ceiling(
         rg_ch='rg_ch',
         _c: str = "close",
 ):
-
+    # only use swings of the given level for regime detection
     _peak_table = peak_table.loc[peak_table.lvl == sw_lvl].sort_values('start')
     # retest_table = peak_table.loc[peak_table.lvl == 1]
     # retest_lo_table = retest_table.loc[retest_table.type == 1]
@@ -792,6 +795,16 @@ def regime_floor_ceiling(
     return df, fc_data
 
 
+def redux_regime_floor_ceiling(price: pd.DataFrame, peak: pd.DataFrame, stdev, threshold: float):
+    # assume all peaks are same level or normalized as intented by the user of this function
+    swing_high = peak.loc[peak.type == -1]
+    swing_low = peak.loc[peak.type == 1]
+
+    # table of swing discovery values paired together
+    swing_reference = pd.DataFrame(
+        data={'hi': swing_high.start, 'lo': swing_low.start}
+    ).ffill().bfill().reset_index(drop=True)
+
 def find_fc(
         df,
         fc_ix: pd.Timestamp,
@@ -934,13 +947,13 @@ def break_pullback(
     # TODO
 
     # data_range = df.loc[rg_ch_data.rg_ch_date: latest_hi_lo_sw_discovery, close_col]
-    data_range = df.loc[rg_ch_data.rg_ch_date: latest_hi_lo_sw_discovery].copy()
+
     # break_extreme_date = getattr(data_range, extreme_idx_func)()
 
     # brkout_low = df[brkout_high_ix: latest_hi_lo_swing][close_col].cummin()
     # break_vals = df.loc[break_extreme_date: latest_hi_lo_sw_discovery, close_col]
     # break_vals = df.loc[break_extreme_date: latest_hi_lo_sw_discovery, close_col].ffill()
-
+    data_range = df.loc[rg_ch_data.rg_ch_date: latest_hi_lo_sw_discovery].copy()
     diff = data_range.close - rg_ch_data.rg_ch_val
     data_range['retests'] = np.where(
         diff > 0,

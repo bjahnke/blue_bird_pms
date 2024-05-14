@@ -686,6 +686,7 @@ def fc_scale_strategy_live(
             enhanced_price_data.at[retest_swing.start, swing_col] = retest_swing.st_px
 
     standard_dev = price_data.close.rolling(swing_window).std(ddof=0)
+    standard_dev.index = price_data.bar_number
 
     regime_table, enhanced_price_data, fc_data = init_regime_table(
         enhanced_price_data=enhanced_price_data,
